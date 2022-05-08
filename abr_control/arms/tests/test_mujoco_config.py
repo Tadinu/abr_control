@@ -4,7 +4,7 @@ import pytest
 pytest.importorskip("mujoco")
 
 from abr_control.arms.mujoco_config import MujocoConfig as arm  # pylint: disable=C0413
-from abr_control.interfaces.mujoco import Mujoco  # pylint: disable=C0413
+from abr_control.interfaces.mujoco import AbrMujoco  # pylint: disable=C0413
 
 from .dummy_mujoco_arm import TwoJoint  # pylint: disable=C0413
 
@@ -20,7 +20,7 @@ def test_g():
     test_arm = TwoJoint()
     # set up the Mujoco interface and config
     robot_config = arm("twojoint")
-    interface = Mujoco(robot_config=robot_config, visualize=False)
+    interface = AbrMujoco(robot_config=robot_config, visualize=False)
     interface.connect()
 
     q_vals = np.linspace(0, 2 * np.pi, 50)
@@ -34,7 +34,7 @@ def test_J():
     test_arm = TwoJoint(L0=0.2, L1=0.4)
     # set up the Mujoco interface and config
     robot_config = arm("twojoint")
-    interface = Mujoco(robot_config=robot_config, visualize=False)
+    interface = AbrMujoco(robot_config=robot_config, visualize=False)
     interface.connect()
 
     q_vals = np.linspace(0, 2 * np.pi, 50)
@@ -159,7 +159,7 @@ def test_J():
 def test_R():
     test_arm = TwoJoint()
     robot_config = arm("twojoint")
-    interface = Mujoco(robot_config=robot_config, visualize=False)
+    interface = AbrMujoco(robot_config=robot_config, visualize=False)
     interface.connect()
 
     q_vals = np.linspace(0, 2 * np.pi, 50)
@@ -182,7 +182,7 @@ def test_R():
 def test_C():
     test_arm = TwoJoint()
     robot_config = arm("twojoint")
-    interface = Mujoco(robot_config=robot_config, visualize=False)
+    interface = AbrMujoco(robot_config=robot_config, visualize=False)
     interface.connect()
 
     with pytest.raises(NotImplementedError):
@@ -204,7 +204,7 @@ def test_Tx():
     test_arm = TwoJoint()
     # set up the Mujoco interface and config
     robot_config = arm("twojoint")
-    interface = Mujoco(robot_config=robot_config, visualize=False)
+    interface = AbrMujoco(robot_config=robot_config, visualize=False)
     interface.connect()
 
     q_vals = np.linspace(0, 2 * np.pi, 50)

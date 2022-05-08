@@ -6,14 +6,13 @@ is recorded and plotted when the script is exited (with ctrl-c).
 In this example, the floating controller is applied in the joint space
 """
 import sys
-import traceback
-
-import glfw
 import numpy as np
 
 from abr_control.arms.mujoco_config import MujocoConfig as arm
 from abr_control.controllers import Floating
-from abr_control.interfaces.mujoco import Mujoco
+from abr_control.interfaces.mujoco import AbrMujoco
+
+from main_window import MainWindow
 
 if len(sys.argv) > 1:
     arm_model = sys.argv[1]
@@ -22,10 +21,14 @@ else:
 # initialize our robot config
 robot_config = arm(arm_model)
 
-# create the Mujoco interface and connect up
-interface = Mujoco(robot_config, dt=0.001)
-interface.connect()
-interface.send_target_angles(robot_config.START_ANGLES)
+# create the Mujoco sim_interface & connect
+OFFSCREEN_RENDERING=True
+DT = 0.001
+sim_interface = AbrMujoco(robot_config, dt=DT, visualize=True, create_offscreen_rendercontext=OFFSCREEN_RENDERING)
+# Connect to Mujoco instance, creating sim_interface viewer's main window
+sim_interface.connect()
+sim_interface.init_viewer()
+sim_interface.send_target_angles(robot_config.START_ANGLES)
 
 # instantiate the controller
 ctrlr = Floating(robot_config, task_space=False, dynamic=True)
@@ -33,46 +36,36 @@ ctrlr = Floating(robot_config, task_space=False, dynamic=True)
 # set up arrays for tracking end-effector and target position
 ee_track = []
 q_track = []
+      
+ee_id = sim_interface.model.name2id('EE', 'body')
 
+def tick():
+    global sim_interface, robot_config, ctrlr, ee_track, q_track, ee_id
+    # get joint angle and velocity feedback
+    feedback = sim_interface.get_feedback()
 
+    # calculate the control signal
+    u = ctrlr.generate(q=feedback["q"], dq=feedback["dq"])
+
+    # add gripper forces
+    u = np.hstack((u, np.zeros(robot_config.N_GRIPPER_JOINTS)))
+
+    # send forces into Mujoco
+    sim_interface.send_forces(u)
+
+    # get the position of the hand
+    hand_xyz = sim_interface.get_xyz_from_id(ee_id, 'body')
+    
+    # track end effector position
+    ee_track.append(np.copy(hand_xyz))
+    q_track.append(np.copy(feedback["q"]))
+    return sim_interface.tick()
+
+# Open main window
 try:
-    # get the end-effector's initial position
-    feedback = interface.get_feedback()
-    start = robot_config.Tx("EE", q=feedback["q"])
-
-    print("\nSimulation starting...\n")
-
-    while 1:
-        if interface.viewer.exit:
-            glfw.destroy_window(interface.viewer.window)
-            break
-        # get joint angle and velocity feedback
-        feedback = interface.get_feedback()
-
-        # calculate the control signal
-        u = ctrlr.generate(q=feedback["q"], dq=feedback["dq"])
-
-        # add gripper forces
-        u = np.hstack((u, np.zeros(robot_config.N_GRIPPER_JOINTS)))
-
-        # send forces into Mujoco
-        interface.send_forces(u)
-
-        # calculate the position of the hand
-        hand_xyz = robot_config.Tx("EE", q=feedback["q"])
-        # track end effector position
-        ee_track.append(np.copy(hand_xyz))
-        q_track.append(np.copy(feedback["q"]))
-
-except:
-    print(traceback.format_exc())
-
+    main_window = MainWindow(sim_interface, robot_config)
+    main_window.exec(tick)
 finally:
-    # close the connection to the arm
-    interface.disconnect()
-
-    print("Simulation terminated...")
-
     ee_track = np.array(ee_track)
 
     if ee_track.shape[0] > 0:

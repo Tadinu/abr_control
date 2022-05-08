@@ -6,14 +6,14 @@ The cartesian direction being controlled is set in the first three booleans
 of the ctrlr_dof parameter
 """
 import sys
-
-import glfw
 import numpy as np
 
 from abr_control.arms.mujoco_config import MujocoConfig as arm
 from abr_control.controllers import OSC, Damping
-from abr_control.interfaces.mujoco import Mujoco
+from abr_control.interfaces.mujoco import AbrMujoco
 from abr_control.utils import transformations
+
+from main_window import MainWindow
 
 if len(sys.argv) > 1:
     arm_model = sys.argv[1]
@@ -30,10 +30,14 @@ print(stars)
 print(dof_print)
 print(stars)
 
-# create our interface
-interface = Mujoco(robot_config, dt=0.001)
-interface.connect()
-interface.send_target_angles(robot_config.START_ANGLES)
+# create the Mujoco sim_interface & connect
+OFFSCREEN_RENDERING=True
+DT = 0.001
+sim_interface = AbrMujoco(robot_config, dt=DT, visualize=True, create_offscreen_rendercontext=OFFSCREEN_RENDERING)
+# Connect to Mujoco instance, creating sim_interface viewer's main window
+sim_interface.connect()
+sim_interface.init_viewer()
+sim_interface.send_target_angles(robot_config.START_ANGLES)
 
 # damp the movements of the arm
 damping = Damping(robot_config, kv=10)
@@ -58,63 +62,61 @@ ee_angles_track = []
 target_track = []
 target_angles_track = []
 
+ee_id = sim_interface.model.name2id('EE', 'body')
+target_orientation_id = sim_interface.sim.model.name2id('target_orientation', 'body')
 
+def tick():
+    global sim_interface, robot_config, ctrlr, ee_track, ee_angles_track, target_track, target_angles_track, target_xyz, target_orientation
+    global ee_id, target_orientation_id
+
+    # get arm feedback
+    feedback = sim_interface.get_feedback()
+    hand_xyz = sim_interface.get_xyz_by_id(ee_id)
+
+    for ii, dof in enumerate(ctrlr_dof[:3]):
+        if not dof:
+            target_xyz[ii] = hand_xyz[ii]
+
+    sim_interface.set_mocap_xyz_by_id(target_orientation_id, target_xyz)
+    sim_interface.set_mocap_orientation_by_id(target_orientation_id, target_orientation)
+    target = np.hstack(
+        [
+            sim_interface.get_xyz_by_id(target_orientation_id),
+            transformations.euler_from_quaternion(
+                sim_interface.get_orientation_by_id(target_orientation_id), "rxyz"
+            ),
+        ]
+    )
+
+    u = ctrlr.generate(
+        q=feedback["q"],
+        dq=feedback["dq"],
+        target=target,
+    )
+
+    # add gripper forces
+    u = np.hstack((u, np.zeros(robot_config.N_GRIPPER_JOINTS)))
+
+    # apply the control signal, step the sim forward
+    sim_interface.send_forces(u)
+
+    # track data
+    hand_xyz = sim_interface.get_xyz_by_id(ee_id)
+    ee_track.append(np.copy(hand_xyz))
+    ee_angles_track.append(
+        transformations.euler_from_matrix(
+            hand_xyz, axes="rxyz"
+        )
+    )
+    target_track.append(np.copy(target[:3]))
+    target_angles_track.append(np.copy(target[3:]))
+    return sim_interface.tick()
+
+# Open main window
 try:
-    count = 0
-    print("\nSimulation starting...\n")
-    while 1:
-        # get arm feedback
-        feedback = interface.get_feedback()
-        hand_xyz = robot_config.Tx("EE", feedback["q"])
-
-        for ii, dof in enumerate(ctrlr_dof[:3]):
-            if not dof:
-                target_xyz[ii] = hand_xyz[ii]
-
-        interface.set_mocap_xyz("target_orientation", target_xyz)
-        interface.set_mocap_orientation("target_orientation", target_orientation)
-        if interface.viewer.exit:
-            glfw.destroy_window(interface.viewer.window)
-            break
-
-        target = np.hstack(
-            [
-                interface.get_xyz("target_orientation"),
-                transformations.euler_from_quaternion(
-                    interface.get_orientation("target_orientation"), "rxyz"
-                ),
-            ]
-        )
-
-        u = ctrlr.generate(
-            q=feedback["q"],
-            dq=feedback["dq"],
-            target=target,
-        )
-
-        # add gripper forces
-        u = np.hstack((u, np.zeros(robot_config.N_GRIPPER_JOINTS)))
-
-        # apply the control signal, step the sim forward
-        interface.send_forces(u)
-
-        # track data
-        ee_track.append(np.copy(hand_xyz))
-        ee_angles_track.append(
-            transformations.euler_from_matrix(
-                robot_config.R("EE", feedback["q"]), axes="rxyz"
-            )
-        )
-        target_track.append(np.copy(target[:3]))
-        target_angles_track.append(np.copy(target[3:]))
-        count += 1
-
+    main_window = MainWindow(sim_interface, robot_config)
+    main_window.exec(tick)
 finally:
-    # stop and reset the simulation
-    interface.disconnect()
-
-    print("Simulation terminated...")
-
     ee_track = np.array(ee_track)
     ee_angles_track = np.array(ee_angles_track)
     target_track = np.array(target_track)

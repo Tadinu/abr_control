@@ -1,14 +1,24 @@
-import mujoco_py as mjp
+from re import A
+import mujoco as mjp
+import dm_control.mujoco as dm_mujoco
+from dm_control import _render as dm_render
+from dm_control.viewer import gui as dm_view_gui
+from dm_control.viewer import renderer as dm_view_renderer
+#from dm_control.viewer import runtime as dm_view_runtime
+#from dm_control.viewer import user_input as dm_view_user_input
+from dm_control.viewer import util as dm_view_util
+from dm_control.viewer import viewer as dm_viewer
+from dm_control.viewer import views as dm_views
 import numpy as np
-from mujoco_py.generated import const
 
 from abr_control.utils import transformations
 
 from .interface import Interface
 
-
-class Mujoco(Interface):
-    """An interface for MuJoCo using the mujoco-py package.
+MAX_FRONTBUFFER_SIZE = 2048
+NULL_RENDERER = dm_view_renderer.NullRenderer()
+class AbrMujoco(Interface):
+    """An interface for MuJoCo using the mujoco package.
 
     Parameters
     ----------
@@ -55,17 +65,24 @@ class Mujoco(Interface):
         camera_id: int, optional (Default: -1)
             the id of the camera to use for the visualization
         """
-        self.sim = mjp.MjSim(self.robot_config.model)
+        self.sim = dm_mujoco.Physics.from_xml_path(self.robot_config.xml_file)
         self.sim.forward()  # run forward to fill in sim.data
         model = self.sim.model
         self.model = model
+        self.model_ptr = self.model.ptr
+        self.data_ptr = self.sim.data.ptr
+        self.robot_config.update_model_from_interface(self)
 
         if joint_names is None:
             joint_ids, joint_names = self.get_joints_in_ee_kinematic_tree()
         else:
-            joint_ids = [model.joint_name2id(name) for name in joint_names]
-        self.joint_pos_addrs = [model.get_joint_qpos_addr(name) for name in joint_names]
-        self.joint_vel_addrs = [model.get_joint_qvel_addr(name) for name in joint_names]
+            joint_ids = [self.model.name2id(name) for name in joint_names]
+        print(f'joint_ids:{joint_ids}')
+        print(f'joint_names:{joint_names}')
+        self.joint_types = [self.model_ptr.jnt_type[id] for id in joint_ids]
+        print(f'joint_types:{self.joint_types}')
+        self.joint_pos_addrs = [self.model_ptr.jnt_qposadr[id] for id in joint_ids]
+        self.joint_vel_addrs = [self.model_ptr.jnt_dofadr[id] for id in joint_ids]
 
         joint_pos_addrs = []
         for elem in self.joint_pos_addrs:
@@ -74,6 +91,7 @@ class Mujoco(Interface):
             else:
                 joint_pos_addrs.append(elem)
         self.joint_pos_addrs = joint_pos_addrs
+        print(f'joint_pos_addrs:{joint_pos_addrs}')
 
         joint_vel_addrs = []
         for elem in self.joint_vel_addrs:
@@ -82,6 +100,7 @@ class Mujoco(Interface):
             else:
                 joint_vel_addrs.append(elem)
         self.joint_vel_addrs = joint_vel_addrs
+        print(f'joint_vel_addrs:{joint_vel_addrs}')
 
         # Need to also get the joint rows of the Jacobian, inertia matrix, and
         # gravity vector. This is trickier because if there's a quaternion in
@@ -92,7 +111,7 @@ class Mujoco(Interface):
         # calculate the Jacobian position based on their order and type.
         index = 0
         self.joint_dyn_addrs = []
-        for ii, joint_type in enumerate(model.jnt_type):
+        for ii, joint_type in enumerate(self.joint_types):
             if ii in joint_ids:
                 self.joint_dyn_addrs.append(index)
                 if joint_type == 0:  # free joint
@@ -106,53 +125,150 @@ class Mujoco(Interface):
 
         # give the robot config access to the sim for wrapping the
         # forward kinematics / dynamics functions
+        print(f'joint_dyn_addrs:{self.joint_dyn_addrs}')
         self.robot_config._connect(
-            self.sim, self.joint_pos_addrs, self.joint_vel_addrs, self.joint_dyn_addrs
+            self.joint_pos_addrs, self.joint_vel_addrs, self.joint_dyn_addrs
         )
 
         # if we want to use the offscreen render context create it before the
         # viewer so the corresponding window is behind the viewer
         if self.create_offscreen_rendercontext:
-            self.offscreen = mjp.MjRenderContextOffscreen(self.sim, 0)
+            self.offscreen = mjp.GLContext(max_width=MAX_FRONTBUFFER_SIZE, max_height=MAX_FRONTBUFFER_SIZE)
+            self.offscreen.make_current()
 
         # create the visualizer
         if self.visualize:
-            self.viewer = mjp.MjViewer(self.sim, **kwargs)
-            # if specified, set the camera
-            if camera_id > -1:
-                self.viewer.cam.type = const.CAMERA_FIXED
-                self.viewer.cam.fixedcamid = camera_id
+            TITLE = 'MujocoViewer'
+            WIDTH = 1024
+            HEIGHT = 768
+            self._viewport = dm_view_renderer.Viewport(WIDTH, HEIGHT)
+            self._pause_subject = dm_view_util.ObservableFlag(True)
+            self._time_multiplier = dm_view_util.TimeMultiplier(1.)
+            self._frame_timer = dm_view_util.Timer()
+            self.window = dm_view_gui.RenderWindow(WIDTH, HEIGHT, TITLE)
+            self.viewer = dm_viewer.Viewer(self._viewport, self.window.mouse, self.window.keyboard)
 
         print("MuJoCo session created")
+
+    def init_viewer(self):
+        if self.create_offscreen_rendercontext:
+            render_surface = dm_render.Renderer(max_width=MAX_FRONTBUFFER_SIZE, max_height=MAX_FRONTBUFFER_SIZE)
+            renderer = dm_view_renderer.OffScreenRenderer(self.model, render_surface)
+            renderer.components += dm_views.ViewportLayout()
+        else:
+            renderer = dm_view_renderer.NullRenderer()
+        self.viewer.initialize(self.sim, renderer, touchpad=False)
+        self.viewer.zoom_to_scene()
+
+    def tick(self):
+        """ Ref dm_control/dm_control/viewer/application.py - _tick() """
+        self._viewport.set_size(*self.window.shape)
+        #time_elapsed = self._frame_timer.tick() * self._time_multiplier.get()
+        if self.viewer._renderer:
+            self.viewer.render()
+            return self.viewer._renderer.pixels
+        else:
+            return NULL_RENDERER.pixels
 
     def disconnect(self):
         """Stop and reset the simulation."""
         # nothing to do to close a MuJoCo session
-        print("MuJoCO session closed...")
+        print("MuJoCo session closed...")
 
     def get_joints_in_ee_kinematic_tree(self):
         """Get the names and ids of joints connecting the end-effector to the world"""
-        model = self.sim.model
         # get the kinematic tree for the arm
         joint_ids = []
         joint_names = []
-        body_id = model.body_name2id("EE")
+        body_id = self.model.name2id('EE', 'body')
         # start with the end-effector (EE) and work back to the world body
-        while model.body_parentid[body_id] != 0:
-            jntadrs_start = model.body_jntadr[body_id]
+        while self.model_ptr.body_parentid[body_id] != 0:
+            jntadrs_start = self.model_ptr.body_jntadr[body_id]
             tmp_ids = []
             tmp_names = []
-            for ii in range(model.body_jntnum[body_id]):
+            for ii in range(self.model_ptr.body_jntnum[body_id]):
                 tmp_ids.append(jntadrs_start + ii)
-                tmp_names.append(model.joint_id2name(tmp_ids[-1]))
+                tmp_names.append(self.model.id2name(tmp_ids[-1], 'joint'))
             joint_ids += tmp_ids[::-1]
             joint_names += tmp_names[::-1]
-            body_id = model.body_parentid[body_id]
+            body_id = self.model_ptr.body_parentid[body_id]
         # flip the list so it starts with the base of the arm / first joint
         joint_names = joint_names[::-1]
         joint_ids = np.array(joint_ids[::-1])
 
         return joint_ids, joint_names
+
+    def get_xyz_by_id(self, id, object_type="body"):
+        if object_type == "mocap":  # commonly queried to find target
+            mocap_id = self.model_ptr.body_mocapid[id]
+            xyz = self.data_ptr.mocap_pos[mocap_id]
+        elif object_type == "body":
+            xyz = self.data_ptr.xpos[id]
+        elif object_type == "geom":
+            xyz = self.data_ptr.geom_xpos[id]
+        elif object_type == "site":
+            xyz = self.data_ptr.site_xpos[id]
+        else:
+            raise Exception(f"get_xyz for {object_type} object type not supported")
+        return np.copy(xyz)
+
+    def get_xyz(self, name, object_type="body"):
+        """Returns the xyz position of the specified object
+
+        name: string
+            name of the object you want the xyz position of
+        object_type: string
+            type of object you want the xyz position of
+            Can be: mocap, body, geom, site
+        """
+        id = self.model.name2id(name, object_type)
+        return self.get_xyz_by_id(id, object_type)
+
+    def get_mocap_xyz_by_id(self, body_id):
+        mocap_id = self.model_ptr.body_mocapid[body_id]
+        #print('mocapid', self.model_ptr.body_mocapid, 'body_mocapid', self.model.body_mocapid)
+        #assert(self.model_ptr.body_mocapid.all() == self.model.body_mocapid.all())
+        return self.data_ptr.mocap_pos[mocap_id]
+
+    def get_mocap_xyz(self, name):
+        """Return the position of a mocap object in the Mujoco environment.
+
+        name: string
+            the name of the mocap object
+        """
+        return self.get_mocap_xyz_by_id(self.model.name2id(name, 'body'))
+
+    def set_mocap_xyz_by_id(self, body_id, xyz):
+        mocap_id = self.model_ptr.body_mocapid[body_id]
+        #assert(self.model_ptr.body_mocapid.all() == self.model.body_mocapid.all())
+        self.data_ptr.mocap_pos[mocap_id] = xyz
+
+    def set_mocap_xyz(self, name, xyz):
+        """Set the position of a mocap object in the Mujoco environment.
+
+        name: string
+            the name of the object
+        xyz: np.array
+            the [x,y,z] location of the target [meters]
+        """
+        self.set_mocap_xyz_by_id(self.model.name2id(name, 'body'), xyz)
+
+    def get_orientation_by_id(self, id, object_type="body"):
+        if object_type == "mocap":  # commonly queried to find target
+            quat = self.get_mocap_orientation_by_id(id)
+        elif object_type == "body":
+            quat = self.data_ptr.xquat[id]
+        elif object_type == "geom":
+            xmat = self.data_ptr.geom_xmat[id]
+            quat = transformations.quaternion_from_matrix(xmat.reshape((3, 3)))
+        elif object_type == "site":
+            xmat = self.data_ptr.site_xmat[id]
+            quat = transformations.quaternion_from_matrix(xmat.reshape((3, 3)))
+        else:
+            raise Exception(
+                f"get_orientation for {object_type} object type not supported"
+            )
+        return np.copy(quat)
 
     def get_orientation(self, name, object_type="body"):
         """Returns the orientation of an object as the [w x y z] quaternion [radians]
@@ -165,21 +281,49 @@ class Mujoco(Interface):
             The type of mujoco object to get the orientation of.
             Can be: mocap, body, geom, site
         """
+        id = self.model.name2id(name, object_type)
+        return self.get_orientation_by_id(id, object_type)
+
+    def get_rotation_matrix_by_id(self, id, object_type="body"):
         if object_type == "mocap":  # commonly queried to find target
-            quat = self.sim.data.get_mocap_quat(name)
+            quat = self.get_mocap_orientation_by_id(id)
+            mjp.mju_quat2Mat(xmat, quat)
         elif object_type == "body":
-            quat = self.sim.data.get_body_xquat(name)
+            xmat = self.data_ptr.xmat[id]
         elif object_type == "geom":
-            xmat = self.sim.data.get_geom_xmat(name)
-            quat = transformations.quaternion_from_matrix(xmat.reshape((3, 3)))
+            xmat = self.data_ptr.geom_xmat[id]
         elif object_type == "site":
-            xmat = self.sim.model.get_site_xmat(name)
-            quat = transformations.quaternion_from_matrix(xmat.reshape((3, 3)))
+            xmat = self.data_ptr.site_xmat[id]
         else:
             raise Exception(
-                f"get_orientation for {object_type} object type not supported"
+                f"get_rotation_matrix_by_id for {object_type} object type not supported"
             )
-        return np.copy(quat)
+        return np.copy(xmat)
+
+    def get_rotation_matrix(self, name, object_type="body"):
+        """Returns the rotation matrix of an object as the [w x y z] quaternion [radians]
+
+        Parameters
+        ----------
+        name: string
+            the name of the object of interest
+        object_type: string, Optional (Default: body)
+            The type of mujoco object to get the orientation of.
+            Can be: mocap, body, geom, site
+        """
+        id = self.model.name2id(name, object_type)
+        return self.get_rotation_matrix_by_id(id, object_type)
+        
+    def get_mocap_orientation_by_id(self, body_id):
+        mocap_id = self.model_ptr.body_mocapid[body_id]
+        return self.data_ptr.mocap_quat[mocap_id]
+
+    def get_mocap_orientation(self, name):
+        return self.get_mocap_orientation_by_id(self.model.name2id(name, 'body'))
+
+    def set_mocap_orientation_by_id(self, body_id, quat):
+        mocap_id = self.model_ptr.body_mocapid[body_id]
+        self.data_ptr.mocap_quat[mocap_id] = quat
 
     def set_mocap_orientation(self, name, quat):
         """Sets the orientation of an object in the Mujoco environment
@@ -194,7 +338,7 @@ class Mujoco(Interface):
         quat: np.array
             the [w x y z] quaternion [radians] for the object.
         """
-        self.sim.data.set_mocap_quat(name, quat)
+        self.set_mocap_orientation_by_id(self.model.name2id(name, 'body'), quat)
 
     def send_forces(self, u, update_display=True):
         """Apply the specified torque to the robot joints
@@ -212,18 +356,21 @@ class Mujoco(Interface):
 
         # NOTE: the qpos_addr's are unrelated to the order of the motors
         # NOTE: assuming that the robot arm motors are the first len(u) values
-        self.sim.data.ctrl[:] = u[:]
+        self.data_ptr.ctrl[:] = u[:]
 
         # move simulation ahead one time step
         self.sim.step()
 
         # Update position of hand object
-        feedback = self.get_feedback()
-        hand_xyz = self.robot_config.Tx(name="EE", q=feedback["q"])
+        id = self.model.name2id('EE', 'body')
+        #feedback = self.get_feedback()
+        #hand_xyz = self.robot_config.Tx(name="EE", q=feedback["q"])
+        hand_xyz = self.data_ptr.xpos[id] #self.get_xyz('EE', 'body')
         self.set_mocap_xyz("hand", hand_xyz)
 
         # Update orientation of hand object
-        hand_quat = self.robot_config.quaternion(name="EE", q=feedback["q"])
+        #hand_quat = self.robot_config.quaternion(name="EE", q=feedback["q"])
+        hand_quat = self.data_ptr.xquat[id] #self.get_orientation('EE', 'body')
         self.set_mocap_orientation("hand", hand_quat)
 
         if self.visualize and update_display:
@@ -241,7 +388,7 @@ class Mujoco(Interface):
         name: string
             name of the body to apply the force to
         """
-        self.sim.data.xfrc_applied[self.model.body_name2id(name)] = u_ext
+        self.data_ptr.xfrc_applied[self.sim.model.name2id(name, 'body')] = u_ext
 
     def send_target_angles(self, q):
         """Move the robot to the specified configuration.
@@ -252,7 +399,7 @@ class Mujoco(Interface):
             configuration to move to [radians]
         """
 
-        self.sim.data.qpos[self.joint_pos_addrs] = np.copy(q)
+        self.data_ptr.qpos[self.joint_pos_addrs] = np.copy(q)
         self.sim.forward()
 
     def set_joint_state(self, q, dq):
@@ -266,8 +413,8 @@ class Mujoco(Interface):
             joint velocities [rad/s]
         """
 
-        self.sim.data.qpos[self.joint_pos_addrs] = np.copy(q)
-        self.sim.data.qvel[self.joint_vel_addrs] = np.copy(dq)
+        self.data_ptr.qpos[self.joint_pos_addrs] = np.copy(q)
+        self.data_ptr.qvel[self.joint_vel_addrs] = np.copy(dq)
         self.sim.forward()
 
     def get_feedback(self):
@@ -277,39 +424,7 @@ class Mujoco(Interface):
         respectively
         """
 
-        self.q = np.copy(self.sim.data.qpos[self.joint_pos_addrs])
-        self.dq = np.copy(self.sim.data.qvel[self.joint_vel_addrs])
+        self.q = np.copy(self.data_ptr.qpos[self.joint_pos_addrs])
+        self.dq = np.copy(self.data_ptr.qvel[self.joint_vel_addrs])
 
         return {"q": self.q, "dq": self.dq}
-
-    def get_xyz(self, name, object_type="body"):
-        """Returns the xyz position of the specified object
-
-        name: string
-            name of the object you want the xyz position of
-        object_type: string
-            type of object you want the xyz position of
-            Can be: mocap, body, geom, site
-        """
-        if object_type == "mocap":  # commonly queried to find target
-            xyz = self.sim.data.get_mocap_pos(name)
-        elif object_type == "body":
-            xyz = self.sim.data.get_body_xpos(name)
-        elif object_type == "geom":
-            xyz = self.sim.data.get_geom_xpos(name)
-        elif object_type == "site":
-            xyz = self.sim.data.get_site_xpos(name)
-        else:
-            raise Exception(f"get_xyz for {object_type} object type not supported")
-
-        return np.copy(xyz)
-
-    def set_mocap_xyz(self, name, xyz):
-        """Set the position of a mocap object in the Mujoco environment.
-
-        name: string
-            the name of the object
-        xyz: np.array
-            the [x,y,z] location of the target [meters]
-        """
-        self.sim.data.set_mocap_pos(name, xyz)

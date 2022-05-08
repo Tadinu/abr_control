@@ -28,7 +28,7 @@ libraries, and will take a few minutes.
 To install ABR Control, clone this repository and run::
 
     sudo apt-get install g++
-    sudo apt-get install python-dev
+    sudo apt-get install python3-dev
     sudo apt-get install libfreetype6-dev
     conda activate your_environment
     pip install -e .

@@ -1,7 +1,8 @@
 import os
 from xml.etree import ElementTree
 
-import mujoco_py as mjp
+import mujoco as mjp
+import dm_control.mujoco as dm_mujoco
 import numpy as np
 
 from abr_control.utils import download_meshes
@@ -96,10 +97,21 @@ class MujocoConfig:
                 files=files,
             )
 
-        self.model = mjp.load_model_from_path(self.xml_file)
+        self.sim = dm_mujoco.Physics.from_xml_path(self.xml_file)
+        self.model = self.sim.model
+        self.model_ptr = self.sim.model.ptr
+        self.data_ptr = self.sim.data.ptr
+        assert(self.sim.model == self.sim.data.model)
+        self.N_JOINTS = self.model_ptr.njnt
         self.use_sim_state = use_sim_state
 
-    def _connect(self, sim, joint_pos_addrs, joint_vel_addrs, joint_dyn_addrs):
+    def update_model_from_interface(self, sim_inteface):
+        self.model = sim_inteface.model
+        self.model_ptr = sim_inteface.model_ptr
+        self.data_ptr = sim_inteface.data_ptr
+        assert(self.sim.model == self.sim.data.model)
+
+    def _connect(self, joint_pos_addrs, joint_vel_addrs, joint_dyn_addrs):
         """Called by the interface once the Mujoco simulation is created,
         this connects the config to the simulator so it can access the
         kinematics and dynamics information calculated by Mujoco.
@@ -119,28 +131,27 @@ class MujocoConfig:
             Jacobian, inertia matrix, and gravity vector
         """
         # get access to the Mujoco simulation
-        self.sim = sim
         self.joint_pos_addrs = np.copy(joint_pos_addrs)
         self.joint_vel_addrs = np.copy(joint_vel_addrs)
         self.joint_dyn_addrs = np.copy(joint_dyn_addrs)
 
         # number of controllable joints in the robot arm
-        self.N_JOINTS = len(self.joint_dyn_addrs)
+        self.N_JOINTS = len(self.joint_pos_addrs)
         # number of joints in the Mujoco simulation
-        N_ALL_JOINTS = self.sim.model.nv
+        N_ALL_JOINTS = self.model_ptr.nv
 
         # need to calculate the joint_dyn_addrs indices in flat vectors returned
         # for the Jacobian
         self.jac_indices = np.hstack(
             # 6 because position and rotation Jacobians are 3 x N_JOINTS
-            [self.joint_dyn_addrs + (ii * N_ALL_JOINTS) for ii in range(3)]
+            [self.joint_dyn_addrs + (i * N_ALL_JOINTS) for i in range(3)]
         )
 
         # for the inertia matrix
         self.M_indices = [
-            ii * N_ALL_JOINTS + jj
-            for jj in self.joint_dyn_addrs
-            for ii in self.joint_dyn_addrs
+            i * N_ALL_JOINTS + j
+            for j in self.joint_dyn_addrs
+            for i in self.joint_dyn_addrs
         ]
 
         # a place to store data returned from Mujoco
@@ -168,16 +179,16 @@ class MujocoConfig:
             The set of joint forces to apply to the arm joints [Nm]
         """
         # save current state
-        old_q = np.copy(self.sim.data.qpos[self.joint_pos_addrs])
-        old_dq = np.copy(self.sim.data.qvel[self.joint_vel_addrs])
-        old_u = np.copy(self.sim.data.ctrl)
+        old_q = np.copy(self.data_ptr.qpos[self.joint_pos_addrs])
+        old_dq = np.copy(self.data_ptr.qvel[self.joint_vel_addrs])
+        old_u = np.copy(self.data_ptr.ctrl)
 
         # update positions to specified state
-        self.sim.data.qpos[self.joint_pos_addrs] = np.copy(q)
+        self.data_ptr.qpos[self.joint_pos_addrs] = np.copy(q)
         if dq is not None:
-            self.sim.data.qvel[self.joint_vel_addrs] = np.copy(dq)
+            self.data_ptr.qvel[self.joint_vel_addrs] = np.copy(dq)
         if u is not None:
-            self.sim.data.ctrl[:] = np.copy(u)
+            self.data_ptr.ctrl[:] = np.copy(u)
 
         # move simulation forward to calculate new kinematic information
         self.sim.forward()
@@ -199,7 +210,7 @@ class MujocoConfig:
         if not self.use_sim_state and q is not None:
             old_q, old_dq, old_u = self._load_state(q)
 
-        g = -1 * self.sim.data.qfrc_bias[self.joint_dyn_addrs]
+        g = -1 * self.data_ptr.qfrc_bias[self.joint_dyn_addrs]
 
         if not self.use_sim_state and q is not None:
             self._load_state(old_q, old_dq, old_u)
@@ -247,23 +258,21 @@ class MujocoConfig:
         if not self.use_sim_state and q is not None:
             old_q, old_dq, old_u = self._load_state(q)
 
+        id = self.model.name2id(name, object_type)
+        J3NP = self._J3NP.reshape((3, self.N_ALL_JOINTS))
+        J3NR = self._J3NR.reshape((3, self.N_ALL_JOINTS))
         if object_type == "body":
             # TODO: test if using this function is faster than the old way
             # NOTE: for bodies, the Jacobian for the COM is returned
-            mjp.cymj._mj_jacBodyCom(
-                self.model,
-                self.sim.data,
-                self._J3NP,
-                self._J3NR,
-                self.model.body_name2id(name),
-            )
+            mjp.mj_jacBodyCom(self.model_ptr, self.data_ptr, J3NP, J3NR, id)
         else:
+            dft_jac = np.zeros(3 * self.N_ALL_JOINTS)
             if object_type == "geom":
-                jacp = self.sim.data.get_geom_jacp
-                jacr = self.sim.data.get_geom_jacr
+                jacp = mjp.mj_jacGeom(self.model_ptr, self.data_ptr, J3NP, 0, id)
+                jacr = mjp.mj_jacGeom(self.model_ptr, self.data_ptr, 0, J3NR, id)
             elif object_type == "site":
-                jacp = self.sim.data.get_site_jacp
-                jacr = self.sim.data.get_site_jacr
+                jacp = mjp.mj_jacSite(self.model_ptr, self.data_ptr, J3NP, 0, id)
+                jacr = mjp.mj_jacSite(self.model_ptr, self.data_ptr, 0, J3NR, id)
             else:
                 raise Exception("Invalid object type specified: ", object_type)
 
@@ -294,7 +303,8 @@ class MujocoConfig:
 
         # stored in mjData.qM, stored in custom sparse format,
         # convert qM to a dense matrix with mj_fullM
-        mjp.cymj._mj_fullM(self.model, self._MNN_vector, self.sim.data.qM)
+        mjp.mj_fullM(self.model_ptr, self._MNN_vector.reshape(
+            self.N_ALL_JOINTS, self.N_ALL_JOINTS), self.data_ptr.qM)
         M = self._MNN_vector[self.M_indices]
         M = M.reshape((self.N_JOINTS, self.N_JOINTS))
 
@@ -317,19 +327,21 @@ class MujocoConfig:
         if not self.use_sim_state and q is not None:
             old_q, old_dq, old_u = self._load_state(q)
 
+        id = self.model.name2id(name, 'body')
         if object_type == "body":
-            mjp.cymj._mju_quat2Mat(self._R9, self.sim.data.get_body_xquat(name))
-            self._R = self._R9.reshape((3, 3))
+            #mjp.mju_quat2Mat(self._R9, self.data_ptr.xquat[id])
+            self._R9 = self.data_ptr.xmat[id]
         elif object_type == "geom":
-            R = self.sim.data.get_geom_xmat(name)
+            self._R9 = self.data_ptr.geom_xmat[id]
         elif object_type == "site":
-            R = self.sim.data.get_site_xmat(name)
+            self._R9 = self.data_ptr.site_xmat[id]
         else:
             raise Exception("Invalid object type specified: ", object_type)
 
         if not self.use_sim_state and q is not None:
             self._load_state(old_q, old_dq, old_u)
 
+        self._R = self._R9.reshape((3, 3))
         return self._R
 
     def quaternion(self, name, q=None):
@@ -346,7 +358,7 @@ class MujocoConfig:
         if not self.use_sim_state and q is not None:
             old_q, old_dq, old_u = self._load_state(q)
 
-        quaternion = np.copy(self.sim.data.get_body_xquat(name))
+        quaternion = np.copy(self.data_ptr.xquat[self.sim.model.name2id(name, 'body')])
 
         if not self.use_sim_state and q is not None:
             self._load_state(old_q, old_dq, old_u)
@@ -400,20 +412,22 @@ class MujocoConfig:
         if not self.use_sim_state and q is not None:
             old_q, old_dq, old_u = self._load_state(q)
 
+        id = self.model.name2id(name, object_type)
         if object_type == "body":
-            Tx = np.copy(self.sim.data.get_body_xpos(name))
+            Tx = np.copy(self.data_ptr.xpos[id])
         elif object_type == "geom":
-            Tx = np.copy(self.sim.data.get_geom_xpos(name))
+            Tx = np.copy(self.data_ptr.geom_xpos[id])
         elif object_type == "joint":
-            Tx = np.copy(self.sim.data.get_joint_xanchor(name))
+            Tx = np.copy(self.data_ptr.xanchor[id])
         elif object_type == "site":
-            Tx = np.copy(self.sim.data.get_site_xpos(name))
+            Tx = np.copy(self.data_ptr.site_xpos[id])
         elif object_type == "camera":
-            Tx = np.copy(self.sim.data.get_cam_xpos(name))
+            Tx = np.copy(self.data_ptr.cam_xpos[id])
         elif object_type == "light":
-            Tx = np.copy(self.sim.data.get_light_xpos(name))
+            Tx = np.copy(self.data_ptr.light_xpos[id])
         elif object_type == "mocap":
-            Tx = np.copy(self.sim.data.get_mocap_pos(name))
+            mocap_id = self.model.ptr.body_mocapid[id]
+            Tx = np.copy(self.data_ptr.mocap_pos[mocap_id])
         else:
             raise Exception("Invalid object type specified: ", object_type)
 
