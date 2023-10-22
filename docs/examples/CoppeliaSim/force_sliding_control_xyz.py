@@ -15,14 +15,14 @@ from abr_control.controllers import Sliding
 from abr_control.interfaces import CoppeliaSim
 
 # initialize our robot config
-robot_config = arm.Config()
+robot_model = arm.Config()
 
 # instantiate controller
 # NOTE: These values are non-optimal
-ctrlr = Sliding(robot_config, kd=10.0, lamb=30.00)
+ctrlr = Sliding(robot_model, kd=10.0, lamb=30.00)
 
 # create our CoppeliaSim interface
-interface = CoppeliaSim(robot_config, dt=0.001)
+interface = CoppeliaSim(robot_model, dt=0.001)
 interface.connect()
 
 # set up lists for tracking data
@@ -33,7 +33,7 @@ target_track = []
 try:
     # get the end-effector's initial position
     feedback = interface.get_feedback()
-    start = robot_config.Tx("EE", feedback["q"])
+    start = robot_model.Tx("EE", feedback["q"])
 
     # make the target offset from that start position
     target_xyz = start + np.array([0.2, -0.2, 0.0])
@@ -52,7 +52,7 @@ try:
         interface.send_forces(u)
 
         # calculate end-effector position
-        ee_xyz = robot_config.Tx("EE", q=feedback["q"])
+        ee_xyz = robot_model.Tx("EE", q=feedback["q"])
         # track data
         ee_track.append(np.copy(ee_xyz))
         target_track.append(np.copy(target_xyz))

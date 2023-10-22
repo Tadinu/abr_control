@@ -12,20 +12,20 @@ from abr_control.controllers import OSC, Damping, RestingConfig
 from abr_control.interfaces.pygame import PyGame
 
 # initialize our robot config
-robot_config = arm.Config()
+robot_model = arm.Config()
 # create our arm simulation
-arm_sim = arm.ArmSim(robot_config)
+arm_sim = arm.ArmSim(robot_model)
 
 # damp the movements of the arm
-damping = Damping(robot_config, kv=10)
+damping = Damping(robot_model, kv=10)
 # keep the arm near a default configuration
 resting_config = RestingConfig(
-    robot_config, kp=50, kv=np.sqrt(50), rest_angles=[np.pi / 4, np.pi / 4, None]
+    robot_model, kp=50, kv=np.sqrt(50), rest_angles=[np.pi / 4, np.pi / 4, None]
 )
 
 # create an operational space controller
 ctrlr = OSC(
-    robot_config,
+    robot_model,
     kp=20,
     use_C=True,
     null_controllers=[damping],
@@ -40,12 +40,12 @@ def on_click(self, mouse_x, mouse_y):
 
 
 # create our interface
-interface = PyGame(robot_config, arm_sim, dt=0.001, on_click=on_click)
+interface = PyGame(robot_model, arm_sim, dt=0.001, on_click=on_click)
 interface.connect()
 
 # create a target
 feedback = interface.get_feedback()
-target_xyz = robot_config.Tx("EE", feedback["q"])
+target_xyz = robot_model.Tx("EE", feedback["q"])
 interface.set_target(target_xyz)
 
 
@@ -57,7 +57,7 @@ try:
     while 1:
         # get arm feedback
         feedback = interface.get_feedback()
-        hand_xyz = robot_config.Tx("EE", feedback["q"])
+        hand_xyz = robot_model.Tx("EE", feedback["q"])
 
         target = np.hstack([target_xyz, np.zeros(3)])
         # generate an operational space control signal

@@ -8,13 +8,13 @@ class Damping(Controller):
 
     Parameters
     ----------
-    robot_config : class instance
+    robot_model : class instance
         contains all relevant information about the arm
         such as: number of joints, number of links, mass information etc.
     """
 
-    def __init__(self, robot_config, kv):
-        super().__init__(robot_config)
+    def __init__(self, robot_model, kv):
+        super().__init__(robot_model)
 
         self.kv = kv
 
@@ -28,5 +28,5 @@ class Damping(Controller):
         """
 
         # calculate joint space inertia matrix
-        M = self.robot_config.M(q=q)
+        M = self.robot_model.M(q=q)
         return np.dot(M, -self.kv * dq)

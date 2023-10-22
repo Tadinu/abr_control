@@ -14,28 +14,28 @@ class ArmSim:
 
     Parameters
     ----------
-    robot_config : class instance
+    robot_model : class instance
         contains all relevant information about the arm
         such as: number of joints, number of links, mass information etc.
     dt: float, optional (Default: 0.001)
         simulation time step [seconds]
-    q_init : numpy.array, optional (Default: robot_config.START_ANGLES)
+    q_init : numpy.array, optional (Default: robot_model.START_ANGLES)
         start joint angles [radians]
     dq_init : numpy.array, optional (Default: np.zeros)
         start joint velocity [radians/second]
     """
 
-    def __init__(self, robot_config, dt=0.001, q_init=None, dq_init=None):
+    def __init__(self, robot_model, dt=0.001, q_init=None, dq_init=None):
 
-        self.robot_config = robot_config
+        self.robot_model = robot_model
 
         # create placeholders for joint angles and velocity
-        self.q = np.zeros(self.robot_config.N_JOINTS)
-        self.dq = np.zeros(self.robot_config.N_JOINTS)
+        self.q = np.zeros(self.robot_model.N_JOINTS)
+        self.dq = np.zeros(self.robot_model.N_JOINTS)
 
-        self.init_state = np.zeros(self.robot_config.N_JOINTS * 2)
+        self.init_state = np.zeros(self.robot_model.N_JOINTS * 2)
         if q_init is None:
-            self.init_state[::2] = self.robot_config.START_ANGLES
+            self.init_state[::2] = self.robot_model.START_ANGLES
         else:
             self.init_state[::2] = q_init
         if dq_init is not None:
@@ -110,10 +110,10 @@ class ArmSim:
         """Compute x,y position of the hand"""
 
         xy = [
-            self.robot_config.Tx(f"joint{ii}", q=self.q)
-            for ii in range(self.robot_config.N_JOINTS)
+            self.robot_model.Tx(f"joint{ii}", q=self.q)
+            for ii in range(self.robot_model.N_JOINTS)
         ]
-        xy = np.vstack([xy, self.robot_config.Tx("EE", q=self.q)])
+        xy = np.vstack([xy, self.robot_model.Tx("EE", q=self.q)])
         self.joints_x = xy[:, 0]
         self.joints_y = xy[:, 1]
         return np.array([self.joints_x, self.joints_y])

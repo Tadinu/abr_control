@@ -10,7 +10,7 @@ class Sliding(Controller):
 
     Parameters
     ----------
-    robot_config : class instance
+    robot_model : class instance
         contains all relevant information about the arm
         such as: number of joints, number of links, mass information etc.
     kd : float, optional (Default: 160)
@@ -23,9 +23,9 @@ class Sliding(Controller):
 
     """
 
-    def __init__(self, robot_config, kd=160.0, lamb=30.0, cartesian=True):
+    def __init__(self, robot_model, kd=160.0, lamb=30.0, cartesian=True):
 
-        super().__init__(robot_config)
+        super().__init__(robot_model)
 
         self.kd = kd
         self.lamb = lamb
@@ -63,14 +63,14 @@ class Sliding(Controller):
 
         if self.cartesian:
             # calculate the position Jacobian for the end effector
-            J = self.robot_config.J(ref_frame, q, x=offset)[:3]
+            J = self.robot_model.J(ref_frame, q, x=offset)[:3]
 
             # calculate the end-effector position information
-            xyz = self.robot_config.Tx(ref_frame, q, x=offset)
+            xyz = self.robot_model.Tx(ref_frame, q, x=offset)
             dxyz = np.dot(J, dq)
 
             J_inv = np.linalg.pinv(J)
-            dJ = self.robot_config.dJ(ref_frame, q, dq, x=offset)[:3]
+            dJ = self.robot_model.dJ(ref_frame, q, dq, x=offset)[:3]
 
             dq_ref = np.dot(J_inv, target_velocity + self.lamb * (target - xyz))
             ddq_ref = np.dot(
@@ -88,11 +88,11 @@ class Sliding(Controller):
         self.s = dq - dq_ref
 
         # calculate the inertia matrix in joint space
-        M = self.robot_config.M(q)
+        M = self.robot_model.M(q)
         # calculate the partial centrifugal and Coriolis effects
-        C = self.robot_config.C(q=q, dq=dq)
+        C = self.robot_model.C(q=q, dq=dq)
         # calculate the effects of gravity
-        g = self.robot_config.g(q=q)
+        g = self.robot_model.g(q=q)
 
         u = np.dot(M, ddq_ref) + np.dot(C, dq_ref) + g - self.kd * self.s
 

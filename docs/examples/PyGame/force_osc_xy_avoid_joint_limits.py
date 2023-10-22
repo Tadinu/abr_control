@@ -14,21 +14,21 @@ from abr_control.interfaces.pygame import PyGame
 print("\nClick to move the target.\n")
 
 # initialize our robot config
-robot_config = arm.Config()
+robot_model = arm.Config()
 # create our arm simulation
-arm_sim = arm.ArmSim(robot_config)
+arm_sim = arm.ArmSim(robot_model)
 
 avoid = AvoidJointLimits(
-    robot_config,
-    min_joint_angles=[np.pi / 5.0] * robot_config.N_JOINTS,
-    max_joint_angles=[np.pi / 2.0] * robot_config.N_JOINTS,
-    max_torque=[100.0] * robot_config.N_JOINTS,
+    robot_model,
+    min_joint_angles=[np.pi / 5.0] * robot_model.N_JOINTS,
+    max_joint_angles=[np.pi / 2.0] * robot_model.N_JOINTS,
+    max_torque=[100.0] * robot_model.N_JOINTS,
 )
 # damp the movements of the arm
-damping = Damping(robot_config, kv=10)
+damping = Damping(robot_model, kv=10)
 # create an operational space controller
 ctrlr = OSC(
-    robot_config,
+    robot_model,
     kp=100,
     null_controllers=[avoid, damping],
     # control (x, y) out of [x, y, z, alpha, beta, gamma]
@@ -43,7 +43,7 @@ def on_click(self, mouse_x, mouse_y):
 
 # create our interface
 interface = PyGame(
-    robot_config,
+    robot_model,
     arm_sim,
     dt=0.001,
     on_click=on_click,
@@ -65,7 +65,7 @@ try:
     while 1:
         # get arm feedback
         feedback = interface.get_feedback()
-        hand_xyz = robot_config.Tx("EE", feedback["q"])
+        hand_xyz = robot_model.Tx("EE", feedback["q"])
 
         target = np.hstack([target_xyz, target_angles])
         # generate an operational space control signal

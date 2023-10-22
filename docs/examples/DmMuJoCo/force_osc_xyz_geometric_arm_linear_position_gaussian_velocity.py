@@ -14,14 +14,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D  # pylint: disable=W0611
 
-from abr_control.arms.mujoco_config import MujocoConfig
-from abr_control.controllers import OSC
+from abr_control.arms.mujoco_model import MujocoModelfrom abr_control.controllers import OSC
 from abr_control.controllers.path_planners import PathPlanner
 from abr_control.controllers.path_planners.position_profiles import Linear
 from abr_control.controllers.path_planners.velocity_profiles import Gaussian
-from abr_control.interfaces.mujoco import AbrMujoco
+from abr_control.interfaces.abr_mujoco import AbrMujoco
 
-from main_window import MainWindow
+from abr_control.app.main_window import MainWindow
 
 if len(sys.argv) > 1:
     use_wall_clock = True
@@ -39,19 +38,19 @@ else:
     show_plot = False
 model_filename = "threejoint"
 
-robot_config = MujocoConfig(model_filename)
+robot_model = MujocoModel(model_filename)
 
 # create the Mujoco sim_interface and connect
 OFFSCREEN_RENDERING=True
 DT=0.001
-sim_interface = AbrMujoco(robot_config, dt=DT, visualize=True, create_offscreen_rendercontext=OFFSCREEN_RENDERING)
+sim_interface = AbrMujoco(robot_model, dt=DT, visualize=True, create_offscreen_rendercontext=OFFSCREEN_RENDERING)
 # Connect to Mujoco instance, creating sim_interface viewer's main window
 sim_interface.connect()
 sim_interface.init_viewer()
-sim_interface.send_target_angles(robot_config.START_ANGLES)
+sim_interface.send_target_angles(robot_model.START_ANGLES)
 
 ctrlr = OSC(
-    robot_config, kp=30, kv=20, ctrlr_dof=[True, True, True, False, False, False]
+    robot_model, kp=30, kv=20, ctrlr_dof=[True, True, True, False, False, False]
 )
 
 sim_interface.send_target_angles(np.ones(3))
@@ -93,7 +92,7 @@ path_planner_id = sim_interface.model.name2id('target', 'body')
 
 count = 0
 def tick():
-    global sim_interface, robot_config, ctrlr, target_xyz, use_wall_clock, time_elapsed, update_target, ee_track, target_track, count
+    global sim_interface, robot_model, ctrlr, target_xyz, use_wall_clock, time_elapsed, update_target, ee_track, target_track, count
     global ee_id, target_id, path_planner_id, path_planner
 
     start = timeit.default_timer()
@@ -179,7 +178,7 @@ def tick():
 
 # Open main window
 try:
-    main_window = MainWindow(sim_interface, robot_config)
+    main_window = MainWindow(sim_interface, robot_model)
     main_window.exec(tick)
 finally:
     ee_track = np.array(ee_track)

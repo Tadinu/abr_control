@@ -8,15 +8,15 @@ from abr_control.controllers import OSC
 
 
 def test_timing(arm, config_params, osc_params, use_cython):
-    robot_config = arm.Config(use_cython=use_cython, **config_params)
-    ctrlr = OSC(robot_config, **osc_params)
+    robot_model = arm.Config(use_cython=use_cython, **config_params)
+    ctrlr = OSC(robot_model, **osc_params)
 
     # then run for timing
     n_trials = 1000
     times = np.zeros(n_trials + 1)
     for ii in range(n_trials + 1):
-        q = np.random.random(robot_config.N_JOINTS) * 2 * np.pi
-        dq = np.random.random(robot_config.N_JOINTS) * 5
+        q = np.random.random(robot_model.N_JOINTS) * 2 * np.pi
+        dq = np.random.random(robot_model.N_JOINTS) * 5
         target = np.random.random(6) * 2 - 1
 
         start = timeit.default_timer()

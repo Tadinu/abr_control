@@ -10,13 +10,13 @@ class RestingConfig(Joint):
 
     Parameters
     ----------
-    robot_config: class instance
+    robot_model: class instance
         contains all relevant information about the arm
         such as number of joints, number of links, mass information etc.
     """
 
-    def __init__(self, robot_config, rest_angles, **kwargs):
-        super().__init__(robot_config, account_for_gravity=False, **kwargs)
+    def __init__(self, robot_model, rest_angles, **kwargs):
+        super().__init__(robot_model, account_for_gravity=False, **kwargs)
 
         self.rest_angles = np.asarray(rest_angles)
         self.rest_indices = [val is not None for val in rest_angles]

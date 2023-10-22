@@ -15,22 +15,22 @@ from abr_control.controllers import Joint
 from abr_control.interfaces import CoppeliaSim
 
 # initialize our robot config
-robot_config = arm.Config()
+robot_model = arm.Config()
 
 # instantiate the REACH controller for the jaco2 robot
-ctrlr = Joint(robot_config, kp=50)
+ctrlr = Joint(robot_model, kp=50)
 
 # create interface and connect
-interface = CoppeliaSim(robot_config=robot_config, dt=0.005)
+interface = CoppeliaSim(robot_model=robot_model, dt=0.005)
 interface.connect()
 
 # make the target an offset of the current configuration
 feedback = interface.get_feedback()
-target = feedback["q"] + np.ones(robot_config.N_JOINTS) * 0.3
+target = feedback["q"] + np.ones(robot_model.N_JOINTS) * 0.3
 
 # For CoppeliaSim files that have a shadow arm to show the target configuration
 # get joint handles for shadow
-names = [f"joint{ii}_shadow" for ii in range(robot_config.N_JOINTS)]
+names = [f"joint{ii}_shadow" for ii in range(robot_model.N_JOINTS)]
 joint_handles = []
 for name in names:
     interface.get_xyz(name)  # this loads in the joint handle
@@ -81,6 +81,6 @@ finally:
         plt.plot(
             np.ones(q_track.shape) * ((target + np.pi) % (np.pi * 2) - np.pi), "--"
         )
-        plt.legend(range(robot_config.N_LINKS))
+        plt.legend(range(robot_model.N_LINKS))
         plt.tight_layout()
         plt.show()

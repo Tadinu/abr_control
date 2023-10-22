@@ -15,13 +15,13 @@ from abr_control.controllers import OSC, Damping
 from abr_control.interfaces import CoppeliaSim
 
 # initialize our robot config
-robot_config = arm.Config()
+robot_model = arm.Config()
 
 # damp the movements of the arm
-damping = Damping(robot_config, kv=10)
+damping = Damping(robot_model, kv=10)
 # instantiate controller
 ctrlr = OSC(
-    robot_config,
+    robot_model,
     kp=200,
     null_controllers=[damping],
     vmax=[0.5, 0],  # [m/s, rad/s]
@@ -30,7 +30,7 @@ ctrlr = OSC(
 )
 
 # create our CoppeliaSim interface
-interface = CoppeliaSim(robot_config, dt=0.005)
+interface = CoppeliaSim(robot_model, dt=0.005)
 interface.connect()
 
 # set up lists for tracking data
@@ -41,7 +41,7 @@ target_track = []
 try:
     # get the end-effector's initial position
     feedback = interface.get_feedback()
-    start = robot_config.Tx("EE", feedback["q"])
+    start = robot_model.Tx("EE", feedback["q"])
 
     # make the target offset from that start position
     target_xyz = start + np.array([0.2, -0.2, -0.3])
@@ -71,7 +71,7 @@ try:
         interface.send_forces(u)
 
         # calculate end-effector position
-        ee_xyz = robot_config.Tx("EE", q=feedback["q"])
+        ee_xyz = robot_model.Tx("EE", q=feedback["q"])
         # track data
         ee_track.append(np.copy(ee_xyz))
         target_track.append(np.copy(target[:3]))

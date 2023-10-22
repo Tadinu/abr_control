@@ -10,12 +10,12 @@ from abr_control.controllers import Sliding
 from abr_control.interfaces.pygame import PyGame
 
 # initialize our robot config
-robot_config = arm.Config()
+robot_model = arm.Config()
 # create our arm simulation
-arm_sim = arm.ArmSim(robot_config)
+arm_sim = arm.ArmSim(robot_model)
 
 # create an operational space controller
-ctrlr = Sliding(robot_config)
+ctrlr = Sliding(robot_model)
 
 
 def on_click(self, mouse_x, mouse_y):
@@ -24,12 +24,12 @@ def on_click(self, mouse_x, mouse_y):
 
 
 # create our interface
-interface = PyGame(robot_config, arm_sim, dt=0.001, on_click=on_click)
+interface = PyGame(robot_model, arm_sim, dt=0.001, on_click=on_click)
 interface.connect()
 
 # create a target
 feedback = interface.get_feedback()
-target_xyz = robot_config.Tx("EE", feedback["q"])
+target_xyz = robot_model.Tx("EE", feedback["q"])
 interface.set_target(target_xyz)
 
 
@@ -41,7 +41,7 @@ try:
     while 1:
         # get arm feedback
         feedback = interface.get_feedback()
-        hand_xyz = robot_config.Tx("EE", feedback["q"])
+        hand_xyz = robot_model.Tx("EE", feedback["q"])
 
         # generate an operational space control signal
         u = ctrlr.generate(q=feedback["q"], dq=feedback["dq"], target=target_xyz)

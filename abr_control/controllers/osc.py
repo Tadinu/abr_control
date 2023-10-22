@@ -13,7 +13,7 @@ class OSC(Controller):
 
     Parameters
     ----------
-    robot_config: class instance
+    robot_model: class instance
         contains all relevant information about the arm
         such as: number of joints, number of links, mass information etc.
     kp: float, optional (Default: 1)
@@ -52,7 +52,7 @@ class OSC(Controller):
 
     def __init__(
         self,
-        robot_config,
+        robot_model,
         kp=1,
         ko=None,
         kv=None,
@@ -65,7 +65,7 @@ class OSC(Controller):
         orientation_algorithm=0,
     ):
 
-        super().__init__(robot_config)
+        super().__init__(robot_model)
 
         self.kp = kp
         self.ko = kp if ko is None else ko
@@ -90,9 +90,9 @@ class OSC(Controller):
         self.lamb = self.task_space_gains / self.kv
 
         try:
-            if self.n_ctrlr_dof > robot_config.N_JOINTS:
+            if self.n_ctrlr_dof > robot_model.N_JOINTS:
                 print(
-                    f"\nRobot has fewer DOF ({robot_config.N_JOINTS}) "
+                    f"\nRobot has fewer DOF ({robot_model.N_JOINTS}) "
                     + "than the specified number of "
                     + f"space dimensions to control ({self.n_ctrlr_dof}), "
                     + "Poor performance may result.\n"
@@ -115,9 +115,9 @@ class OSC(Controller):
             self.scale_abg = vmax[1] / self.ko * self.kv
 
         self.ZEROS_SIX = np.zeros(6)
-        self.IDENTITY_N_JOINTS = np.eye(self.robot_config.N_JOINTS)
+        self.IDENTITY_N_JOINTS = np.eye(self.robot_model.N_JOINTS)
 
-    def _Mx(self, M, J, threshold=1e-3):
+    def _Mx(self, M, J, use_svd=False, threshold=1e-4):
         """Generate the task-space inertia matrix
 
         Parameters
@@ -126,25 +126,37 @@ class OSC(Controller):
             the generalized coordinates inertia matrix
         J: np.array
             the task space Jacobian
-        threshold: scalar, optional (Default: 1e-3)
+        threshold: scalar, optional (Default: 1e-4)
             singular value threshold, if the detminant of Mx_inv is less than
             this value then Mx is calculated using the pseudo-inverse function
             and all singular values < threshold * .1 are set = 0
         """
 
         # calculate the inertia matrix in task space
-        M_inv = np.linalg.inv(M)
+        M_inv = self.__svd_solve(M) if use_svd else np.linalg.inv(M)
         Mx_inv = np.dot(J, np.dot(M_inv, J.T))
         if abs(np.linalg.det(Mx_inv)) >= threshold:
             # do the linalg inverse if matrix is non-singular
             # because it's faster and more accurate
-            Mx = np.linalg.inv(Mx_inv)
+            Mx = self.__svd_solve(Mx_inv) if use_svd else np.linalg.inv(Mx_inv)
         else:
             # using the rcond to set singular values < thresh to 0
             # singular values < (rcond * max(singular_values)) set to 0
             Mx = np.linalg.pinv(Mx_inv, rcond=threshold * 0.1)
 
         return Mx, M_inv
+
+    def __svd_solve(self, A):
+        """
+            Use the SVD Method to calculate the inverse of a matrix
+            https://stackoverflow.com/questions/31251689/how-to-invert-numpy-matrices-using-singular-value-decomposition
+            Parameters
+            ----------
+            A: Matrix
+        """
+        u, s, v = np.linalg.svd(A)
+        Ainv = np.dot(v.transpose(), np.dot(np.diag(s**-1), u.transpose()))
+        return Ainv
 
     def _calc_orientation_forces(self, target_abg, q):
         """Calculate the desired Euler angle forces to apply to the arm to
@@ -167,7 +179,7 @@ class OSC(Controller):
                 )
             )
             # get the quaternion for the end effector
-            q_e = self.robot_config.quaternion("EE", q=q)
+            q_e = self.robot_model.quaternion("EE", q=q)
             q_r = transformations.quaternion_multiply(
                 q_d, transformations.quaternion_conjugate(q_e)
             )
@@ -176,7 +188,7 @@ class OSC(Controller):
         elif self.orientation_algorithm == 1:
             # From (Caccavale et al, 1997) Section IV Quaternion feedback
             # get rotation matrix for the end effector orientation
-            R_e = self.robot_config.R("EE", q)
+            R_e = self.robot_model.R("EE", q)
             # get rotation matrix for the target orientation
             R_d = transformations.euler_matrix(
                 target_abg[0], target_abg[1], target_abg[2], axes="rxyz"
@@ -239,11 +251,11 @@ class OSC(Controller):
         if target_velocity is None:
             target_velocity = self.ZEROS_SIX
 
-        J = self.robot_config.J(ref_frame, q, x=xyz_offset)  # Jacobian
+        J = self.robot_model.J(ref_frame, q, x=xyz_offset)  # Jacobian
         # isolate rows of Jacobian corresponding to controlled task space DOF
         J = J[self.ctrlr_dof]
 
-        M = self.robot_config.M(q)  # inertia matrix in joint space
+        M = self.robot_model.M(q)  # inertia matrix in joint space
         Mx, M_inv = self._Mx(M=M, J=J)  # inertia matrix in task space
 
         # calculate the desired task space forces -----------------------------
@@ -251,7 +263,7 @@ class OSC(Controller):
 
         # if position is being controlled
         if np.sum(self.ctrlr_dof[:3]) > 0:
-            xyz = self.robot_config.Tx(ref_frame, q, x=xyz_offset)
+            xyz = self.robot_model.Tx(ref_frame, q, x=xyz_offset)
             u_task[:3] = xyz - target[:3]
 
         # if orientation is being controlled
@@ -263,7 +275,7 @@ class OSC(Controller):
             self.integrated_error += u_task
             u_task += self.ki * self.integrated_error
 
-        u = np.zeros(self.robot_config.N_JOINTS)
+        u = np.zeros(self.robot_model.N_JOINTS)
         if self.vmax is not None:
             # if max task space velocities specified, apply velocity limiting
             u_task = self._velocity_limiting(u_task)
@@ -289,7 +301,7 @@ class OSC(Controller):
 
         # add in estimation of full centrifugal and Coriolis effects ----------
         if self.use_C:
-            u -= np.dot(self.robot_config.C(q=q, dq=dq), dq)
+            u -= np.dot(self.robot_model.C(q=q, dq=dq), dq)
 
         # store the current control signal u for training in case
         # dynamics adaptation signal is being used
@@ -298,11 +310,11 @@ class OSC(Controller):
 
         # add in gravity term in joint space ----------------------------------
         if self.use_g:
-            u -= self.robot_config.g(q=q)
+            u -= self.robot_model.g(q=q)
 
             # add in gravity term in task space
             # Jbar = np.dot(M_inv, np.dot(J.T, Mx))
-            # g = self.robot_config.g(q=q)
+            # g = self.robot_model.g(q=q)
             # self.u_g = g
             # g_task = np.dot(Jbar.T, g)
 

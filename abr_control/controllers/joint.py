@@ -12,7 +12,7 @@ class Joint(Controller):
 
     Parameters
     ----------
-    robot_config : class instance
+    robot_model : class instance
         contains all relevant information about the arm
         such as: number of joints, number of links, mass information etc.
     kp : float, optional (Default: 1)
@@ -24,14 +24,14 @@ class Joint(Controller):
     """
 
     def __init__(
-        self, robot_config, kp=1, kv=None, quaternions=None, account_for_gravity=True
+        self, robot_model, kp=1, kv=None, quaternions=None, account_for_gravity=True
     ):
-        super().__init__(robot_config)
+        super().__init__(robot_model)
 
         self.kp = kp
         self.kv = np.sqrt(self.kp) if kv is None else kv
         self.account_for_gravity = account_for_gravity
-        self.ZEROS_N_JOINTS = np.zeros(robot_config.N_JOINTS)
+        self.ZEROS_N_JOINTS = np.zeros(robot_model.N_JOINTS)
 
         if quaternions is not None:
             self.quaternions = quaternions
@@ -122,10 +122,10 @@ class Joint(Controller):
         q_tilde = self.q_tilde(q, target)
 
         # get the joint space inertia matrix
-        M = self.robot_config.M(q)
+        M = self.robot_model.M(q)
         u = np.dot(M, (self.kp * q_tilde + self.kv * (target_velocity - dq)))
         # account for gravity
         if self.account_for_gravity:
-            u -= self.robot_config.g(q)
+            u -= self.robot_model.g(q)
 
         return u

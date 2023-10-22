@@ -1,0 +1,38 @@
+devices:
+    -   id: 0
+        name: "jaco2"
+        max_vel: [1, 5]
+        start_body: "hand"
+        EE: "EE"
+        ctrlr_dof_xyz: [True, True, True]
+        ctrlr_dof_abg: [False, False, False]
+        start_angles: [2.0, 3.14, 1.57, 4.71, 0.0, 3.04]
+        num_gripper_joints: 3
+robots:
+    -   id: 0
+        name: "jaco2_0"
+        device_ids: [0]
+controller_configs:
+    -   name: "osc0"
+        kp: 2000
+        kv: 20
+        ki: 1
+        ko: 2000
+        k: [1,2,3]
+        d: [0.5,1,1]
+    -   name: "osc1"
+        kp: 200
+        kv: 50
+        ki: 1
+        ko: 200
+        k: [1,2,3]
+        d: [0.5,1,1]
+    -   name: "osc2"
+        kp: 200
+        kv: 20
+        ki: 1
+        ko: 200
+        k: [1,2,3]
+        d: [0.5,1,1]
+    -   name: "nullspace"
+        kv: 10

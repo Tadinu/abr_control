@@ -8,14 +8,14 @@ of the ctrlr_dof parameter
 import sys
 import numpy as np
 
-from abr_control.arms.mujoco_config import MujocoConfig as arm
+from abr_control.arms.mujoco_model import MujocoModel as arm
 from abr_control.controllers import OSC, Damping
 from abr_control.controllers.path_planners import PathPlanner
 from abr_control.controllers.path_planners.position_profiles import Linear
 from abr_control.controllers.path_planners.velocity_profiles import Gaussian
-from abr_control.interfaces.mujoco import AbrMujoco
+from abr_control.interfaces.abr_mujoco import AbrMujoco
 
-from main_window import MainWindow
+from abr_control.app.main_window import MainWindow
 
 max_a = 2
 
@@ -24,7 +24,7 @@ if len(sys.argv) > 1:
 else:
     arm_model = "jaco2"
 # initialize our robot config for the jaco2
-robot_config = arm(arm_model)
+robot_model = arm(arm_model)
 
 ctrlr_dof = [True, True, True, False, False, False]
 dof_labels = ["x", "y", "z", "a", "b", "g"]
@@ -37,17 +37,17 @@ print(stars)
 # create the Mujoco sim_interface & connect
 OFFSCREEN_RENDERING=True
 DT = 0.001
-sim_interface = AbrMujoco(robot_config, dt=DT, visualize=True, create_offscreen_rendercontext=OFFSCREEN_RENDERING)
+sim_interface = AbrMujoco(robot_model, dt=DT, visualize=True, create_offscreen_rendercontext=OFFSCREEN_RENDERING)
 # Connect to Mujoco instance, creating sim_interface viewer's main window
 sim_interface.connect()
 sim_interface.init_viewer()
-sim_interface.send_target_angles(robot_config.START_ANGLES)
+sim_interface.send_target_angles(robot_model.START_ANGLES)
 
 # damp the movements of the arm
-damping = Damping(robot_config, kv=10)
+damping = Damping(robot_model, kv=10)
 # create opreational space controller
 ctrlr = OSC(
-    robot_config,
+    robot_model,
     kp=30,
     kv=20,
     ko=180,
@@ -91,7 +91,7 @@ def fetch_next_target():
     return next_target
 
 def tick():
-    global sim_interface, robot_config, ctrlr, path_planner, pos_target, count, at_target, ee_id, target_id, target_orientation_id
+    global sim_interface, robot_model, ctrlr, path_planner, pos_target, count, at_target, ee_id, target_id, target_orientation_id
 
     if at_target >= 500:
         return sim_interface.tick()
@@ -111,7 +111,7 @@ def tick():
     )
 
     # add gripper forces
-    u = np.hstack((u, np.zeros(robot_config.N_GRIPPER_JOINTS)))
+    u = np.hstack((u, np.zeros(robot_model.N_GRIPPER_JOINTS)))
 
     # apply the control signal, step the sim forward
     sim_interface.send_forces(u)
@@ -133,7 +133,7 @@ pos_target = fetch_next_target()
 
 # Open main window
 try:
-    main_window = MainWindow(sim_interface, robot_config)
+    main_window = MainWindow(sim_interface, robot_model)
     main_window.exec(tick)
 finally:
     ee_track = np.array(ee_track)

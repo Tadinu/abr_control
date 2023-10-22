@@ -18,15 +18,15 @@ from abr_control.interfaces.pygame import PyGame
 from abr_control.utils import transformations
 
 # initialize our robot config
-robot_config = arm.Config()
+robot_model = arm.Config()
 # create our arm simulation
-arm_sim = arm.ArmSim(robot_config)
+arm_sim = arm.ArmSim(robot_model)
 
 # damp the movements of the arm
-damping = Damping(robot_config, kv=10)
+damping = Damping(robot_model, kv=10)
 # create operational space controller
 ctrlr = OSC(
-    robot_config,
+    robot_model,
     kp=50,
     null_controllers=[damping],
     # control (gamma) out of [x, y, z, alpha, beta, gamma]
@@ -55,11 +55,11 @@ def on_keypress(self, key):
 
 
 # create our interface
-interface = PyGame(robot_config, arm_sim, dt=0.001, on_keypress=on_keypress)
+interface = PyGame(robot_model, arm_sim, dt=0.001, on_keypress=on_keypress)
 interface.connect()
 interface.theta = -3 * np.pi / 4
 feedback = interface.get_feedback()
-R = robot_config.R("EE", feedback["q"])
+R = robot_model.R("EE", feedback["q"])
 interface.on_keypress(interface, None)
 
 
@@ -71,7 +71,7 @@ try:
     while 1:
         # get arm feedback
         feedback = interface.get_feedback()
-        hand_xyz = robot_config.Tx("EE", feedback["q"])
+        hand_xyz = robot_model.Tx("EE", feedback["q"])
 
         target = np.hstack([np.zeros(3), interface.target_angles])
         u = ctrlr.generate(

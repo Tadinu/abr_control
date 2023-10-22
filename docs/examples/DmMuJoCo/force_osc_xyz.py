@@ -6,34 +6,34 @@ trajectory of the end-effector is plotted in 3D.
 import sys
 import numpy as np
 
-from abr_control.arms.mujoco_config import MujocoConfig as arm
+from abr_control.arms.mujoco_model import MujocoModel as arm
 from abr_control.controllers import OSC, Damping
-from abr_control.interfaces.mujoco import AbrMujoco
+from abr_control.interfaces.abr_mujoco import AbrMujoco
 from abr_control.utils import transformations
 
-from main_window import MainWindow
+from abr_control.app.main_window import MainWindow
 
 if len(sys.argv) > 1:
     arm_model = sys.argv[1]
 else:
     arm_model = "jaco2"
 # initialize our robot config for the jaco2
-robot_config = arm(arm_model)
+robot_model = arm(arm_model)
 
 # create the Mujoco sim_interface & connect
 OFFSCREEN_RENDERING=True
 DT = 0.001
-sim_interface = AbrMujoco(robot_config, dt=DT, visualize=True, create_offscreen_rendercontext=OFFSCREEN_RENDERING)
+sim_interface = AbrMujoco(robot_model, dt=DT, visualize=True, create_offscreen_rendercontext=OFFSCREEN_RENDERING)
 # Connect to Mujoco instance, creating sim_interface viewer's main window
 sim_interface.connect()
 sim_interface.init_viewer()
-sim_interface.send_target_angles(robot_config.START_ANGLES)
+sim_interface.send_target_angles(robot_model.START_ANGLES)
 
 # damp the movements of the arm
-damping = Damping(robot_config, kv=10)
+damping = Damping(robot_model, kv=10)
 # instantiate controller
 ctrlr = OSC(
-    robot_config,
+    robot_model,
     kp=200,
     null_controllers=[damping],
     vmax=[0.5, 0],  # [m/s, rad/s]
@@ -62,7 +62,7 @@ gen_target(sim_interface)
 
 count = 0
 def tick():
-    global sim_interface, robot_config, ctrlr, ee_id, ee_track, target_track, target_id, target_geom_id, green, red, count
+    global sim_interface, robot_model, ctrlr, ee_id, ee_track, target_track, target_id, target_geom_id, green, red, count
     # get joint angle and velocity feedback
     feedback = sim_interface.get_feedback()
 
@@ -83,7 +83,7 @@ def tick():
     )
 
     # add gripper forces
-    u = np.hstack((u, np.zeros(robot_config.N_GRIPPER_JOINTS)))
+    u = np.hstack((u, np.zeros(robot_model.N_GRIPPER_JOINTS)))
 
     # send forces into Mujoco, step the sim forward
     sim_interface.send_forces(u)
@@ -109,7 +109,7 @@ def tick():
 
 # Open main window
 try:
-    main_window = MainWindow(sim_interface, robot_config)
+    main_window = MainWindow(sim_interface, robot_model)
     main_window.exec(tick)
 finally:
     ee_track = np.array(ee_track)

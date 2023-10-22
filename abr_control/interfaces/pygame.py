@@ -13,7 +13,7 @@ class PyGame:
 
     Parameters
     ----------
-    robot_config : class instance
+    robot_model : class instance
         contains in all relevant information about the arm
         such as: number of joints, number of links, mass information etc.
     arm_sim : class instance
@@ -32,7 +32,7 @@ class PyGame:
 
     def __init__(
         self,
-        robot_config,
+        robot_model,
         arm_sim,
         dt=0.001,
         q_init=None,
@@ -41,7 +41,7 @@ class PyGame:
         scaling_term=105,
         line_width=15,
     ):
-        self.robot_config = robot_config
+        self.robot_model = robot_model
         self.arm_sim = arm_sim
 
         # set up size of pygame window
@@ -63,14 +63,14 @@ class PyGame:
 
         # NOTE: assuming that the arm lengths are entirely in the x dimension
         # To get the distance between links we add up couples of transforms,
-        # because the robot_config.L is defined as sets of [joint_to_com,
+        # because the robot_model.L is defined as sets of [joint_to_com,
         # com_to_joint] distances. We ignore the first offset because it's
         # from the origin to joint 0 and we want joint 0 centered.
         # TODO: make this more robust, for systems with offsets
         #       along several dimensions
         L = []
-        for ii in range(int(self.robot_config.L.shape[0] / 2)):
-            L.append(np.sum(self.robot_config.L[ii * 2 : ii * 2 + 2]))
+        for ii in range(int(self.robot_model.L.shape[0] / 2)):
+            L.append(np.sum(self.robot_model.L[ii * 2 : ii * 2 + 2]))
         self.L = np.asarray(L) * self.scaling_term
         # for plotting minimum distance is 1 pixel, otherwise seg fault
         self.L[self.L < 1] = 1

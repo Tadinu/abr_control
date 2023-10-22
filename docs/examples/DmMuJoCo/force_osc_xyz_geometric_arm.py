@@ -13,11 +13,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 from mpl_toolkits.mplot3d import Axes3D  # pylint: disable=W0611
 
-from abr_control.arms.mujoco_config import MujocoConfig
-from abr_control.controllers import OSC
-from abr_control.interfaces.mujoco import AbrMujoco
+from abr_control.arms.mujoco_model import MujocoModelfrom abr_control.controllers import OSC
+from abr_control.interfaces.abr_mujoco import AbrMujoco
 
-from main_window import MainWindow
+from abr_control.app.main_window import MainWindow
 
 print(
     "****************************************************************"
@@ -51,18 +50,18 @@ elif N_JOINTS == 3:
 else:
     raise Exception("Only 1-3 joint arms are available in this example")
 
-robot_config = MujocoConfig(model_filename)
+robot_model = MujocoModel(model_filename)
 
 # create the Mujoco sim_interface and connect up
 OFFSCREEN_RENDERING=True
 DT = 0.005
-sim_interface = AbrMujoco(robot_config, dt=DT, visualize=True, create_offscreen_rendercontext=OFFSCREEN_RENDERING)
+sim_interface = AbrMujoco(robot_model, dt=DT, visualize=True, create_offscreen_rendercontext=OFFSCREEN_RENDERING)
 # Connect to Mujoco instance, creating sim_interface viewer's main window
 sim_interface.connect()
 sim_interface.init_viewer()
-sim_interface.send_target_angles(robot_config.START_ANGLES)
+sim_interface.send_target_angles(robot_model.START_ANGLES)
 
-ctrlr = OSC(robot_config, kp=10, kv=5, ctrlr_dof=ctrlr_dof)
+ctrlr = OSC(robot_model, kp=10, kv=5, ctrlr_dof=ctrlr_dof)
 
 sim_interface.send_target_angles(np.ones(N_JOINTS))
 
@@ -75,7 +74,7 @@ ee_name = 'EE'
 ee_id = sim_interface.model.name2id(ee_name, 'body')
 
 def tick():
-    global sim_interface, robot_config, ctrlr, q_track, ee_id, ee_name, target
+    global sim_interface, robot_model, ctrlr, q_track, ee_id, ee_name, target
 
     feedback = sim_interface.get_feedback()
     hand_xyz = sim_interface.get_xyz_by_id(ee_id)
@@ -99,7 +98,7 @@ def tick():
 
 # Open main window
 try:
-    main_window = MainWindow(sim_interface, robot_config)
+    main_window = MainWindow(sim_interface, robot_model)
     main_window.exec(tick)
 finally:
     q_track = np.asarray(q_track)

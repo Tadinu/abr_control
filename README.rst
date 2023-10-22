@@ -131,7 +131,7 @@ Pygame and CoppeliaSim::
     from abr_control.arms import jaco2 as arm
 
     # ur5, onelink, twolink, and threelink also available to import
-    robot_config = arm.Config()
+    robot_model = arm.Config()
 
 Mujoco::
 
@@ -139,19 +139,19 @@ Mujoco::
 
     # 'ur5', 'onelink', 'twolink', and 'threelink' also available as arm_model's
     arm_model = 'jaco2'
-    robot_config = arm.MujocoConfig(arm_model)
+    robot_model = arm.MujocoModel(arm_model)
 
 ABR Jaco2 (real arm)::
 
     import abr_jaco2
-    robot_config = abr_jaco2.Config()
+    robot_model = abr_jaco2.Config()
 
 The transforms can then be accessed from the instantiated robot config::
 
     # calculate the following given the arm state at joint_angles
-    robot_config.Tx('joint3', q=joint_angles)  # the (x, y, z) position of joint3
-    robot_config.M(q=joint_angles)  # calculate the inertia matrix in joint space
-    robot_config.J('EE', q=joint_angles)  # the Jacobian of the end-effector
+    robot_model.Tx('joint3', q=joint_angles)  # the (x, y, z) position of joint3
+    robot_model.M(q=joint_angles)  # calculate the inertia matrix in joint space
+    robot_model.J('EE', q=joint_angles)  # the Jacobian of the end-effector
 
 
 1d) Arms: Cython for real-time control
@@ -166,7 +166,7 @@ be turned off on instantiation::
 
     from abr_control.arms import ur5
 
-    robot_config = ur5.Config(use_cython=False)
+    robot_model = ur5.Config(use_cython=False)
 
 Below are results from running the operational space controller with different
 controllers with ``use_cython=True`` and ``False``.
@@ -280,14 +280,14 @@ A control loop using these four files looks like::
     dt = 0.005
 
     # Initialize our robot config
-    robot_config = arm.Config()
+    robot_model = arm.Config()
 
     # Damp the movements of the arm
-    damping = Damping(robot_config, kv=10)
+    damping = Damping(robot_model, kv=10)
 
     # Create opreational space controller controlling all 6 DOF
     ctrlr = OSC(
-        robot_config,
+        robot_model,
         kp=100,  # position gain
         ko=250,  # orientation gain
         null_controllers=[damping],
@@ -297,7 +297,7 @@ A control loop using these four files looks like::
     )
 
     # Create our interface
-    interface = CoppeliaSim(robot_config, dt=dt)
+    interface = CoppeliaSim(robot_model, dt=dt)
     interface.connect()
 
     # Create a path planner with a linear shape and gaussian velocity curve
@@ -308,8 +308,8 @@ A control loop using these four files looks like::
 
     # Get our starting state
     feedback = interface.get_feedback()
-    hand_xyz = robot_config.Tx("EE", feedback["q"])
-    starting_orientation = robot_config.quaternion("EE", feedback["q"])
+    hand_xyz = robot_model.Tx("EE", feedback["q"])
+    starting_orientation = robot_model.quaternion("EE", feedback["q"])
 
     # Generate a target
     target_orientation = np.random.random(3)
@@ -342,7 +342,7 @@ A control loop using these four files looks like::
     while count < path_planner.n_timesteps:
         # get arm feedback
         feedback = interface.get_feedback()
-        hand_xyz = robot_config.Tx("EE", feedback["q"])
+        hand_xyz = robot_model.Tx("EE", feedback["q"])
 
         next_target = path_planner.next()
         pos = next_target[:3]

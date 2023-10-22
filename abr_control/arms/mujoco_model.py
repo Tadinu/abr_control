@@ -6,14 +6,28 @@ import dm_control.mujoco as dm_mujoco
 import numpy as np
 
 from abr_control.utils import download_meshes
+from abr_control.interfaces.interface import Interface
 
-
-class MujocoConfig:
+class MujocoModel:
     """A wrapper on the Mujoco simulator to generate all the kinematics and
     dynamics calculations necessary for controllers.
     """
 
-    def __init__(self, xml_file, folder=None, use_sim_state=True, force_download=False):
+    JNT_POS_LENGTH = {
+        mjp.mjtJoint.mjJNT_FREE: 7,
+        mjp.mjtJoint.mjJNT_BALL: 4,
+        mjp.mjtJoint.mjJNT_SLIDE: 1,
+        mjp.mjtJoint.mjJNT_HINGE: 1,
+    }
+
+    JNT_DYN_LENGTH = {
+        mjp.mjtJoint.mjJNT_FREE: 6,
+        mjp.mjtJoint.mjJNT_BALL: 3,
+        mjp.mjtJoint.mjJNT_SLIDE: 1,
+        mjp.mjtJoint.mjJNT_HINGE: 1,
+    }
+
+    def __init__(self, sim_interface, xml_file=None, folder=None, use_sim_state=True, force_download=False):
         """Loads the Mujoco model from the specified xml file
 
         Parameters
@@ -47,17 +61,34 @@ class MujocoConfig:
             False: if the meshes folder is missing it will ask the user whether they
             want to download them
         """
-
-        if folder is None:
-            arm_dir = xml_file.split("_")[0]
-            current_dir = os.path.dirname(__file__)
-            self.xml_file = os.path.join(current_dir, arm_dir, f"{xml_file}.xml")
-            self.xml_dir = f"{current_dir}/{arm_dir}"
-        else:
-            self.xml_dir = f"{folder}"
-            self.xml_file = os.path.join(self.xml_dir, xml_file)
-
+        self.name = None
+        self.use_sim_state = use_sim_state
         self.N_GRIPPEPR_JOINTS = 0
+
+        self.sim_interface = sim_interface
+        self.sim = None
+        self.sim_model = sim_interface.sim_model
+        self.model_ptr = None
+        self.data_ptr = None
+
+        self.joint_ids = np.array([])
+        self.joint_ids_all = np.array([])
+        self.joint_names = np.array([])
+
+        self.xml_file = xml_file
+        self.xml_dir = os.path.dirname(xml_file) if (folder is None and xml_file is not None) else folder
+        
+        # Init configs
+        self.init_configs(force_download)
+
+        # Init default sim interface as loaded from [self.xml_file]
+        if self.sim_model is None:
+            self.set_sim(dm_mujoco.Physics.from_xml_path(self.xml_file))
+            
+        
+    def init_configs(self, force_download):
+        if self.xml_file is None:
+            return
 
         # get access to some of our custom arm parameters from the xml definition
         tree = ElementTree.parse(self.xml_file)
@@ -97,22 +128,8 @@ class MujocoConfig:
                 files=files,
             )
 
-        self.sim = dm_mujoco.Physics.from_xml_path(self.xml_file)
-        self.model = self.sim.model
-        self.model_ptr = self.sim.model.ptr
-        self.data_ptr = self.sim.data.ptr
-        assert(self.sim.model == self.sim.data.model)
-        self.N_JOINTS = self.model_ptr.njnt
-        self.use_sim_state = use_sim_state
-
-    def update_model_from_interface(self, sim_inteface):
-        self.model = sim_inteface.model
-        self.model_ptr = sim_inteface.model_ptr
-        self.data_ptr = sim_inteface.data_ptr
-        assert(self.sim.model == self.sim.data.model)
-
-    def _connect(self, joint_pos_addrs, joint_vel_addrs, joint_dyn_addrs):
-        """Called by the interface once the Mujoco simulation is created,
+    def set_sim(self, sim):
+        """Called only once the Mujoco simulation is created,
         this connects the config to the simulator so it can access the
         kinematics and dynamics information calculated by Mujoco.
 
@@ -120,51 +137,105 @@ class MujocoConfig:
         ----------
         sim: MjSim
             The Mujoco Simulator object created by the Mujoco Interface class
-        joint_pos_addrs: np.array of ints
-            The index of the robot joints in the Mujoco simulation data joint
-            position array
-        joint_vel_addrs: np.array of ints
-            The index of the robot joints in the Mujoco simulation data joint
-            velocity array
-        joint_dyn_addrs: np.array of ints
-            The index of the robot joints in the Mujoco simulation data joint
-            Jacobian, inertia matrix, and gravity vector
+        """
+        self.sim = sim
+        self.sim_model = self.sim.model # dm_control model
+        self.model_ptr = self.sim_model.ptr # mujoco model
+        self.data_ptr = self.sim.data.ptr # mujoco model data
+        self.N_JOINTS = self.model_ptr.njnt
+
+    def init_joints(self):
+        if self.joint_ids is []:
+            return
+        self.joint_ids_all = self.joint_ids
+
+        print(f'{self.name}: joint_ids:{self.joint_ids}')
+        self.joint_types = [self.model_ptr.jnt_type[id] for id in self.joint_ids]
+        print(f'{self.name}: joint_types:{self.joint_types}')
+        self.joint_pos_addrs = [self.model_ptr.jnt_qposadr[id] for id in self.joint_ids]
+        self.joint_vel_addrs = [self.model_ptr.jnt_dofadr[id] for id in self.joint_ids]
+        
+        joint_pos_addrs = []
+        for elem in self.joint_pos_addrs:
+            if isinstance(elem, tuple):
+                joint_pos_addrs += list(range(elem[0], elem[1]))
+            else:
+                joint_pos_addrs.append(elem)
+        self.joint_pos_addrs = joint_pos_addrs
+        print(f'{self.name}: joint_pos_addrs:{joint_pos_addrs}')
+
+        joint_vel_addrs = []
+        for elem in self.joint_vel_addrs:
+            if isinstance(elem, tuple):
+                joint_vel_addrs += list(range(elem[0], elem[1]))
+            else:
+                joint_vel_addrs.append(elem)
+        self.joint_vel_addrs = joint_vel_addrs
+        print(f'{self.name}: joint_vel_addrs:{joint_vel_addrs}')
+
+        # Need to also get the joint rows of the Jacobian, inertia matrix, and
+        # gravity vector. This is trickier because if there's a quaternion in
+        # the joint (e.g. a free joint or a ball joint) then the joint position
+        # address will be different than the joint Jacobian row. This is because
+        # the quaternion joint will have a 4D position and a 3D derivative. So
+        # we go through all the joints, and find out what type they are, then
+        # calculate the Jacobian position based on their order and type.
+        index = 0
+        self.joint_dyn_addrs = []
+        for ii, joint_type in enumerate(self.joint_types):
+            if ii in self.joint_ids:
+                self.joint_dyn_addrs.append(index)
+                if joint_type == mjp.mjtJoint.mjJNT_FREE:  # free joint
+                    self.joint_dyn_addrs += [jj + index for jj in range(1, 6)]
+                    index += 6  # derivative has 6 dimensions
+                elif joint_type == mjp.mjtJoint.mjJNT_BALL:  # ball joint
+                    self.joint_dyn_addrs += [jj + index for jj in range(1, 3)]
+                    index += 3  # derivative has 3 dimension
+                else:  # slide or hinge joint
+                    index += 1  # derivative has 1 dimensions
+
+        # give the robot config access to the sim for wrapping the
+        # forward kinematics / dynamics functions
+        print(f'{self.name}: joint_dyn_addrs:{self.joint_dyn_addrs}')
+        print(f'{self.name}: All joints info fetched')
+
+    def calc_joints_data(self):
+        """Calculate joints data
         """
         # get access to the Mujoco simulation
-        self.joint_pos_addrs = np.copy(joint_pos_addrs)
-        self.joint_vel_addrs = np.copy(joint_vel_addrs)
-        self.joint_dyn_addrs = np.copy(joint_dyn_addrs)
-
         # number of controllable joints in the robot arm
         self.N_JOINTS = len(self.joint_pos_addrs)
         # number of joints in the Mujoco simulation
-        N_ALL_JOINTS = self.model_ptr.nv
+        self.N_ALL_JOINTS = self.model_ptr.nv #njnt
+        N_ALL_JOINTS = self.N_ALL_JOINTS
+        print('N_JOINTS', self.N_JOINTS, 'N_ALL_JOINTS', N_ALL_JOINTS)
 
-        # need to calculate the joint_dyn_addrs indices in flat vectors returned
+        # need to calculate the joint_vel_addrs indices in flat vectors returned
         # for the Jacobian
+        print(self.joint_vel_addrs)
+        
         self.jac_indices = np.hstack(
             # 6 because position and rotation Jacobians are 3 x N_JOINTS
-            [self.joint_dyn_addrs + (i * N_ALL_JOINTS) for i in range(3)]
+            [self.joint_vel_addrs + [(i * N_ALL_JOINTS) for i in range(3)]]
         )
+        print('jac_indices', self.jac_indices)
 
         # for the inertia matrix
         self.M_indices = [
             i * N_ALL_JOINTS + j
-            for j in self.joint_dyn_addrs
-            for i in self.joint_dyn_addrs
+            for j in self.joint_vel_addrs
+            for i in self.joint_vel_addrs
         ]
 
         # a place to store data returned from Mujoco
         self._g = np.zeros(self.N_JOINTS)
-        self._J3NP = np.zeros(3 * N_ALL_JOINTS)
-        self._J3NR = np.zeros(3 * N_ALL_JOINTS)
+        self._J3NP = np.zeros((3, N_ALL_JOINTS))
+        self._J3NR = np.zeros((3, N_ALL_JOINTS))
         self._J6N = np.zeros((6, self.N_JOINTS))
-        self._MNN_vector = np.zeros(N_ALL_JOINTS ** 2)
-        self._MNN = np.zeros(self.N_JOINTS ** 2)
+        self._MNN = np.zeros((N_ALL_JOINTS, N_ALL_JOINTS))
         self._R9 = np.zeros(9)
         self._R = np.zeros((3, 3))
         self._x = np.ones(4)
-        self.N_ALL_JOINTS = N_ALL_JOINTS
 
     def _load_state(self, q, dq=None, u=None):
         """Change the current joint angles
@@ -210,7 +281,7 @@ class MujocoConfig:
         if not self.use_sim_state and q is not None:
             old_q, old_dq, old_u = self._load_state(q)
 
-        g = -1 * self.data_ptr.qfrc_bias[self.joint_dyn_addrs]
+        g = -1 * self.data_ptr.qfrc_bias[self.joint_vel_addrs]
 
         if not self.use_sim_state and q is not None:
             self._load_state(old_q, old_dq, old_u)
@@ -258,21 +329,18 @@ class MujocoConfig:
         if not self.use_sim_state and q is not None:
             old_q, old_dq, old_u = self._load_state(q)
 
-        id = self.model.name2id(name, object_type)
-        J3NP = self._J3NP.reshape((3, self.N_ALL_JOINTS))
-        J3NR = self._J3NR.reshape((3, self.N_ALL_JOINTS))
+        id = self.sim_model.name2id(name, object_type)
         if object_type == "body":
             # TODO: test if using this function is faster than the old way
             # NOTE: for bodies, the Jacobian for the COM is returned
-            mjp.mj_jacBodyCom(self.model_ptr, self.data_ptr, J3NP, J3NR, id)
+            mjp.mj_jacBodyCom(self.model_ptr, self.data_ptr, self._J3NP, self._J3NR, id)
         else:
-            dft_jac = np.zeros(3 * self.N_ALL_JOINTS)
             if object_type == "geom":
-                jacp = mjp.mj_jacGeom(self.model_ptr, self.data_ptr, J3NP, 0, id)
-                jacr = mjp.mj_jacGeom(self.model_ptr, self.data_ptr, 0, J3NR, id)
+                jacp = mjp.mj_jacGeom(self.model_ptr, self.data_ptr, self._J3NP, 0, id)
+                jacr = mjp.mj_jacGeom(self.model_ptr, self.data_ptr, 0, self._J3NR, id)
             elif object_type == "site":
-                jacp = mjp.mj_jacSite(self.model_ptr, self.data_ptr, J3NP, 0, id)
-                jacr = mjp.mj_jacSite(self.model_ptr, self.data_ptr, 0, J3NR, id)
+                jacp = mjp.mj_jacSite(self.model_ptr, self.data_ptr, self._J3NP, 0, id)
+                jacr = mjp.mj_jacSite(self.model_ptr, self.data_ptr, 0, self._J3NR, id)
             else:
                 raise Exception("Invalid object type specified: ", object_type)
 
@@ -280,9 +348,9 @@ class MujocoConfig:
             jacr(name, self._J3NR)[self.jac_indices]  # pylint: disable=W0106
 
         # get the position Jacobian hstacked (1 x N_JOINTS*3)
-        self._J6N[:3] = self._J3NP[self.jac_indices].reshape((3, self.N_JOINTS))
+        self._J6N[:3] = self._J3NP[:, self.joint_vel_addrs].reshape((3, self.N_JOINTS))
         # get the rotation Jacobian hstacked (1 x N_JOINTS*3)
-        self._J6N[3:] = self._J3NR[self.jac_indices].reshape((3, self.N_JOINTS))
+        self._J6N[3:] = self._J3NR[:, self.joint_vel_addrs].reshape((3, self.N_JOINTS))
 
         if not self.use_sim_state and q is not None:
             self._load_state(old_q, old_dq, old_u)
@@ -303,10 +371,8 @@ class MujocoConfig:
 
         # stored in mjData.qM, stored in custom sparse format,
         # convert qM to a dense matrix with mj_fullM
-        mjp.mj_fullM(self.model_ptr, self._MNN_vector.reshape(
-            self.N_ALL_JOINTS, self.N_ALL_JOINTS), self.data_ptr.qM)
-        M = self._MNN_vector[self.M_indices]
-        M = M.reshape((self.N_JOINTS, self.N_JOINTS))
+        mjp.mj_fullM(self.model_ptr, self._MNN, self.data_ptr.qM)
+        M = self._MNN[self.joint_vel_addrs][:, self.joint_vel_addrs]
 
         if not self.use_sim_state and q is not None:
             self._load_state(old_q, old_dq, old_u)
@@ -327,7 +393,7 @@ class MujocoConfig:
         if not self.use_sim_state and q is not None:
             old_q, old_dq, old_u = self._load_state(q)
 
-        id = self.model.name2id(name, 'body')
+        id = self.sim_model.name2id(name, 'body')
         if object_type == "body":
             #mjp.mju_quat2Mat(self._R9, self.data_ptr.xquat[id])
             self._R9 = self.data_ptr.xmat[id]
@@ -412,7 +478,7 @@ class MujocoConfig:
         if not self.use_sim_state and q is not None:
             old_q, old_dq, old_u = self._load_state(q)
 
-        id = self.model.name2id(name, object_type)
+        id = self.sim_model.name2id(name, object_type)
         if object_type == "body":
             Tx = np.copy(self.data_ptr.xpos[id])
         elif object_type == "geom":
@@ -426,7 +492,7 @@ class MujocoConfig:
         elif object_type == "light":
             Tx = np.copy(self.data_ptr.light_xpos[id])
         elif object_type == "mocap":
-            mocap_id = self.model.ptr.body_mocapid[id]
+            mocap_id = self.model_ptr.body_mocapid[id]
             Tx = np.copy(self.data_ptr.mocap_pos[mocap_id])
         else:
             raise Exception("Invalid object type specified: ", object_type)
@@ -450,3 +516,21 @@ class MujocoConfig:
         """
         # TODO if ever required
         raise NotImplementedError
+
+    def xvelp(self, name, object_type="body"):
+        id = self.sim_model.name2id(name, object_type)
+        if object_type == "mocap":  # commonly queried to find target
+            pass
+        elif object_type == "body":
+            self.J(name)
+            xvelp = np.dot(self._J3NP, self.data_ptr.qvel)
+            return xvelp
+        elif object_type == "geom":
+            pass
+        elif object_type == "site":
+            pass
+        else:
+            raise Exception(
+                f"get_xvelp for {object_type} object type not supported"
+            )
+        return None

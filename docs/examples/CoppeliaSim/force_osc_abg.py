@@ -12,13 +12,13 @@ from abr_control.interfaces import CoppeliaSim
 from abr_control.utils import transformations
 
 # initialize our robot config
-robot_config = arm.Config()
+robot_model = arm.Config()
 
 # damp the movements of the arm
-damping = Damping(robot_config, kv=10)
+damping = Damping(robot_model, kv=10)
 # create opreational space controller
 ctrlr = OSC(
-    robot_config,
+    robot_model,
     kp=200,  # position gain
     ko=200,  # orientation gain
     null_controllers=[damping],
@@ -27,7 +27,7 @@ ctrlr = OSC(
 )
 
 # create our interface
-interface = CoppeliaSim(robot_config, dt=0.005)
+interface = CoppeliaSim(robot_model, dt=0.005)
 interface.connect()
 
 # set up lists for tracking data
@@ -40,13 +40,13 @@ try:
     while 1:
         # get arm feedback
         feedback = interface.get_feedback()
-        hand_xyz = robot_config.Tx("EE", feedback["q"])
+        hand_xyz = robot_model.Tx("EE", feedback["q"])
 
         target = np.hstack(
             [interface.get_xyz("target"), interface.get_orientation("target")]
         )
 
-        rc_matrix = robot_config.R("EE", feedback["q"])
+        rc_matrix = robot_model.R("EE", feedback["q"])
         rc_angles = transformations.euler_from_matrix(rc_matrix, axes="rxyz")
 
         u = ctrlr.generate(
@@ -61,7 +61,7 @@ try:
         # track data
         ee_angles_track.append(
             transformations.euler_from_matrix(
-                robot_config.R("EE", feedback["q"]), axes="rxyz"
+                robot_model.R("EE", feedback["q"]), axes="rxyz"
             )
         )
         target_angles_track.append(interface.get_orientation("target"))

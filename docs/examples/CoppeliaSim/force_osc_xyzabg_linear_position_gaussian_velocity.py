@@ -19,13 +19,13 @@ from abr_control.utils import transformations
 
 dt = 0.005
 # initialize our robot config
-robot_config = arm.Config()
+robot_model = arm.Config()
 
 # damp the movements of the arm
-damping = Damping(robot_config, kv=10)
+damping = Damping(robot_model, kv=10)
 # create opreational space controller
 ctrlr = OSC(
-    robot_config,
+    robot_model,
     kp=100,  # position gain
     ko=250,  # orientation gain
     null_controllers=[damping],
@@ -35,7 +35,7 @@ ctrlr = OSC(
 )
 
 # create our interface
-interface = CoppeliaSim(robot_config, dt=dt)
+interface = CoppeliaSim(robot_model, dt=dt)
 interface.connect()
 
 
@@ -44,8 +44,8 @@ path_planner = PathPlanner(
 )
 
 feedback = interface.get_feedback()
-hand_xyz = robot_config.Tx("EE", feedback["q"])
-starting_orientation = robot_config.quaternion("EE", feedback["q"])
+hand_xyz = robot_model.Tx("EE", feedback["q"])
+starting_orientation = robot_model.quaternion("EE", feedback["q"])
 
 target_orientation = np.random.random(3)
 target_orientation /= np.linalg.norm(target_orientation)
@@ -85,7 +85,7 @@ try:
     while count < path_planner.n_timesteps:
         # get arm feedback
         feedback = interface.get_feedback()
-        hand_xyz = robot_config.Tx("EE", feedback["q"])
+        hand_xyz = robot_model.Tx("EE", feedback["q"])
 
         next_target = path_planner.next()
         pos = next_target[:3]
@@ -108,7 +108,7 @@ try:
         ee_track.append(np.copy(hand_xyz))
         ee_angles_track.append(
             transformations.euler_from_matrix(
-                robot_config.R("EE", feedback["q"]), axes="rxyz"
+                robot_model.R("EE", feedback["q"]), axes="rxyz"
             )
         )
         target_track.append(np.copy(target[:3]))

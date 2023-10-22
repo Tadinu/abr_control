@@ -8,7 +8,7 @@ class InverseKinematics:
     """
     PARAMETERS
     ----------
-    robot_config: class instance
+    robot_model: class instance
         contains all relevant information about the arm
         such as: number of joints, number of links, mass information etc.
     max_dx: float, Optional (Default: 0.2)
@@ -19,8 +19,8 @@ class InverseKinematics:
         the speed [rad/sec] to maintain each step
     """
 
-    def __init__(self, robot_config, max_dx=0.2, max_dr=2 * np.pi, max_dq=np.pi):
-        self.robot_config = robot_config
+    def __init__(self, robot_model, max_dx=0.2, max_dr=2 * np.pi, max_dq=np.pi):
+        self.robot_model = robot_model
         self.max_dx = max_dx
         self.max_dr = max_dr
         self.max_dq = max_dq
@@ -84,13 +84,13 @@ class InverseKinematics:
 
         q = np.copy(position)
         for ii in range(n_timesteps):
-            J = self.robot_config.J("EE", q=q)
-            Tx = self.robot_config.Tx("EE", q=q)
+            J = self.robot_model.J("EE", q=q)
+            Tx = self.robot_model.Tx("EE", q=q)
             ee_track.append(Tx)
 
             dx = target_position[:3] - Tx
 
-            Qe = self.robot_config.quaternion("EE", q=q)
+            Qe = self.robot_model.quaternion("EE", q=q)
             # Method 4
             dr = Qe[0] * Qd[1:] - Qd[0] * Qe[1:] - np.cross(Qd[1:], Qe[1:])
 
@@ -123,7 +123,7 @@ class InverseKinematics:
             if method == 3:
                 # Primary position IK, control orientation in null space
                 dq = np.dot(pinv_Jx, dx) + np.dot(
-                    np.eye(self.robot_config.N_JOINTS) - np.dot(pinv_Jx, Jx),
+                    np.eye(self.robot_model.N_JOINTS) - np.dot(pinv_Jx, Jx),
                     np.dot(np.linalg.pinv(J[3:]), dr),
                 )
 
@@ -160,8 +160,8 @@ class InverseKinematics:
         # reset position_path index
         self.n_timesteps = n_timesteps
         self.n = 0
-        self.position_path = path[:, : self.robot_config.N_JOINTS]
-        self.velocity_path = path[:, self.robot_config.N_JOINTS :]
+        self.position_path = path[:, : self.robot_model.N_JOINTS]
+        self.velocity_path = path[:, self.robot_model.N_JOINTS :]
 
         return self.position_path, self.velocity_path
 

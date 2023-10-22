@@ -7,13 +7,13 @@ class Controller:
 
     Parameters
     ----------
-    robot_config : class instance
+    robot_model : class instance
         contains all relevant information about the arm
         such as: number of joints, number of links, mass information etc.
     """
 
-    def __init__(self, robot_config):
-        self.robot_config = robot_config
+    def __init__(self, robot_model):
+        self.robot_model = robot_model
 
         self.offset_zeros = np.zeros(3)
 

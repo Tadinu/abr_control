@@ -6,27 +6,27 @@ trajectory of the end-effector is plotted in 3D.
 import os
 import numpy as np
 
-from abr_control.arms.mujoco_config import MujocoConfig as arm
+from abr_control.arms.mujoco_model import MujocoModel as arm
 from abr_control.controllers import OSC
-from abr_control.interfaces.mujoco import AbrMujoco
+from abr_control.interfaces.abr_mujoco import AbrMujoco
 from abr_control.utils import transformations
 
-from main_window import MainWindow
+from abr_control.app.main_window import MainWindow
 
 # initialize our robot config for the jaco2
 # os.path.abspath(os.getcwd())
-robot_config = arm("mujoco_balljoint.xml", folder=os.path.dirname(os.path.abspath(__file__)))
+robot_model = arm("mujoco_balljoint.xml", folder=os.path.dirname(os.path.abspath(__file__)))
 
 # create the Mujoco sim_interface and connect up
 OFFSCREEN_RENDERING=True
-sim_interface = AbrMujoco(robot_config, dt=0.001, visualize=True, create_offscreen_rendercontext=OFFSCREEN_RENDERING)
+sim_interface = AbrMujoco(robot_model, dt=0.001, visualize=True, create_offscreen_rendercontext=OFFSCREEN_RENDERING)
 # Connect to Mujoco instance, creating sim_interface viewer's main window
 sim_interface.connect()
 sim_interface.init_viewer()
 
 # instantiate controller
 ctrlr = OSC(
-    robot_config,
+    robot_model,
     kp=200,
     # control (x, y, z) out of [x, y, z, alpha, beta, gamma]
     ctrlr_dof=[True, True, True, False, False, False],
@@ -55,7 +55,7 @@ ee_id = sim_interface.model.name2id('EE', 'body')
 
 count = 0
 def tick():
-    global count, sim_interface, robot_config, ctrlr, ee_id, target_id, target_geom_id, targets
+    global count, sim_interface, robot_model, ctrlr, ee_id, target_id, target_geom_id, targets
     # get joint angle and velocity feedback
     feedback = sim_interface.get_feedback()
 
@@ -69,9 +69,9 @@ def tick():
     )
 
     # calculate the control signal
-    # robot_config.N_JOINTS = 3
+    # robot_model.N_JOINTS = 3
     # inertia matrix in joint space
-    #M = robot_config.M(np.hstack(feedback["q"]))
+    #M = robot_model.M(np.hstack(feedback["q"]))
     #print(M, M.shape)
     u = ctrlr.generate(
         q=feedback["q"],
@@ -106,7 +106,7 @@ def tick():
 
 # Open main window
 try:
-    main_window = MainWindow(sim_interface, robot_config)
+    main_window = MainWindow(sim_interface, robot_model)
     main_window.exec(tick)
 finally:
     ee_track = np.array(ee_track)

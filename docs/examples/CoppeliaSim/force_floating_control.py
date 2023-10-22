@@ -14,13 +14,13 @@ from abr_control.controllers import Floating
 from abr_control.interfaces import CoppeliaSim
 
 # initialize our robot config
-robot_config = arm.Config()
+robot_model = arm.Config()
 
 # instantiate the controller
-ctrlr = Floating(robot_config, dynamic=False, task_space=False)
+ctrlr = Floating(robot_model, dynamic=False, task_space=False)
 
 # create the CoppeliaSim interface and connect up
-interface = CoppeliaSim(robot_config, dt=0.005)
+interface = CoppeliaSim(robot_model, dt=0.005)
 interface.connect()
 
 # set up arrays for tracking end-effector and target position
@@ -31,7 +31,7 @@ q_track = []
 try:
     # get the end-effector's initial position
     feedback = interface.get_feedback()
-    start = robot_config.Tx("EE", q=feedback["q"])
+    start = robot_model.Tx("EE", q=feedback["q"])
 
     print("\nSimulation starting...\n")
 
@@ -46,7 +46,7 @@ try:
         interface.send_forces(u)
 
         # calculate the position of the hand
-        hand_xyz = robot_config.Tx("EE", q=feedback["q"])
+        hand_xyz = robot_model.Tx("EE", q=feedback["q"])
         # track end effector position
         ee_track.append(np.copy(hand_xyz))
         q_track.append(np.copy(feedback["q"]))

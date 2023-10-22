@@ -17,22 +17,22 @@ from abr_control.utils import transformations
 use_force_control = True
 
 # initialize our robot config
-robot_config = arm.Config()
+robot_model = arm.Config()
 
 # create our arm simulation
-arm_sim = arm.ArmSim(robot_config)
+arm_sim = arm.ArmSim(robot_model)
 
 if use_force_control:
     # create an operational space controller
-    ctrlr = Joint(robot_config, kp=300, kv=20)
+    ctrlr = Joint(robot_model, kp=300, kv=20)
 
 # create our path planner
 n_timesteps = 2000
-path_planner = path_planners.InverseKinematics(robot_config)
+path_planner = path_planners.InverseKinematics(robot_model)
 
 # create our interface
 dt = 0.001
-interface = PyGame(robot_config, arm_sim, dt=dt)
+interface = PyGame(robot_model, arm_sim, dt=dt)
 interface.connect()
 feedback = interface.get_feedback()
 
@@ -44,13 +44,13 @@ try:
     while 1:
         # get arm feedback
         feedback = interface.get_feedback()
-        hand_xyz = robot_config.Tx("EE", feedback["q"])
+        hand_xyz = robot_model.Tx("EE", feedback["q"])
 
         if count % n_timesteps == 0:
             target_xyz = np.array(
                 [np.random.random() * 2 - 1, np.random.random() * 2 + 1, 0]
             )
-            R = robot_config.R("EE", q=feedback["q"])
+            R = robot_model.R("EE", q=feedback["q"])
             target_orientation = transformations.euler_from_matrix(R, "sxyz")
             # update the position of the target
             interface.set_target(target_xyz)
@@ -82,7 +82,7 @@ try:
         else:
             # use position control
             interface.send_target_angles(
-                target[: robot_config.N_JOINTS],
+                target[: robot_model.N_JOINTS],
                 update_display=(count % 20 == 0),
             )
 

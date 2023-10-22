@@ -15,7 +15,7 @@ class CoppeliaSim(Interface):
 
     Parameters
     ----------
-    robot_config : class instance
+    robot_model : class instance
         contains all relevant information about the arm
         such as: number of joints, number of links, mass information etc.
     dt : float, optional (Default: 0.001)
@@ -25,17 +25,17 @@ class CoppeliaSim(Interface):
         confirmation from CoppeliaSim before continuing, speed increase of about 20%
     """
 
-    def __init__(self, robot_config, dt=0.001, opmode_streaming=True):
+    def __init__(self, robot_model, dt=0.001, opmode_streaming=True):
 
-        super().__init__(robot_config)
+        super().__init__(robot_model)
 
-        self.q = np.zeros(self.robot_config.N_JOINTS)  # joint angles
-        self.dq = np.zeros(self.robot_config.N_JOINTS)  # joint_velocities
+        self.q = np.zeros(self.robot_model.N_JOINTS)  # joint angles
+        self.dq = np.zeros(self.robot_model.N_JOINTS)  # joint_velocities
 
         # joint target velocities, as part of the torque limiting control
         # these need to be super high so that the joints are always moving
         # at the maximum allowed torque
-        self.joint_target_velocities = np.ones(robot_config.N_JOINTS) * 10000.0
+        self.joint_target_velocities = np.ones(robot_model.N_JOINTS) * 10000.0
 
         self.dt = dt  # time step
         self.count = 0  # keep track of how many times send forces is called
@@ -71,15 +71,15 @@ class CoppeliaSim(Interface):
 
         if load_scene:
             # if there's a google id, check for files and download if missing
-            if self.robot_config.google_id != "None":
+            if self.robot_model.google_id != "None":
                 download_meshes.check_and_download(
-                    name=self.robot_config.filename,
-                    google_id=self.robot_config.google_id,
+                    name=self.robot_model.filename,
+                    google_id=self.robot_model.google_id,
                     force_download=force_download,
                 )
             # load the scene specified in the config
             sim.simxLoadScene(
-                self.clientID, self.robot_config.filename, 0, self.blocking
+                self.clientID, self.robot_model.filename, 0, self.blocking
             )
 
         sim.simxSynchronous(self.clientID, True)
@@ -87,7 +87,7 @@ class CoppeliaSim(Interface):
         # get the handles for each joint and set up streaming
         self.joint_handles = [
             sim.simxGetObjectHandle(self.clientID, name, self.blocking)[1]
-            for name in self.robot_config.JOINT_NAMES
+            for name in self.robot_model.JOINT_NAMES
         ]
 
         # get handle for target and set up streaming
@@ -232,12 +232,12 @@ class CoppeliaSim(Interface):
             )
 
         # Update position of hand object
-        hand_xyz = self.robot_config.Tx(name="EE", q=self.q)
+        hand_xyz = self.robot_model.Tx(name="EE", q=self.q)
         self.set_xyz("hand", hand_xyz)
 
         # Update orientation of hand object
         angles = transformations.euler_from_matrix(
-            self.robot_config.R("EE", q=self.q), axes="rxyz"
+            self.robot_model.R("EE", q=self.q), axes="rxyz"
         )
         self.set_orientation("hand", angles)
 

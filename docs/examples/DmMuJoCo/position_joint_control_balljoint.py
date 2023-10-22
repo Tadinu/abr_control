@@ -5,31 +5,31 @@ trajectory of the end-effector is plotted in 3D.
 """
 import numpy as np
 
-from abr_control.arms.mujoco_config import MujocoConfig as arm
+from abr_control.arms.mujoco_model import MujocoModel as arm
 from abr_control.controllers import Joint
-from abr_control.interfaces.mujoco import AbrMujoco
+from abr_control.interfaces.abr_mujoco import AbrMujoco
 from abr_control.utils import transformations
 from abr_control.utils.transformations import quaternion_conjugate, quaternion_multiply
 
-from main_window import MainWindow
+from abr_control.app.main_window import MainWindow
 
 # initialize our robot config for the jaco2
-robot_config = arm("mujoco_balljoint.xml", folder=".", use_sim_state=False)
+robot_model = arm("mujoco_balljoint.xml", folder=".", use_sim_state=False)
 
 # create the Mujoco sim_interface & connect
 OFFSCREEN_RENDERING=True
 DT = 0.001
-sim_interface = AbrMujoco(robot_config, dt=DT, visualize=True, create_offscreen_rendercontext=OFFSCREEN_RENDERING)
+sim_interface = AbrMujoco(robot_model, dt=DT, visualize=True, create_offscreen_rendercontext=OFFSCREEN_RENDERING)
 # Connect to Mujoco instance, creating sim_interface viewer's main window
 sim_interface.connect()
 sim_interface.init_viewer()
-#sim_interface.send_target_angles(robot_config.START_ANGLES)
+#sim_interface.send_target_angles(robot_model.START_ANGLES)
 
 # instantiate controller
 kp = 100
 kv = np.sqrt(kp)
 ctrlr = Joint(
-    robot_config,
+    robot_model,
     kp=kp,
     kv=kv,
     quaternions=[True],
@@ -62,7 +62,7 @@ set_mocap_target()
 
 count = 0
 def tick():
-    global sim_interface, robot_config, ctrlr, q_track, target, target_index, target_track, error_track, target_geom_id, target_quaternions, count
+    global sim_interface, robot_model, ctrlr, q_track, target, target_index, target_track, error_track, target_geom_id, target_quaternions, count
     global target_id, ee_id
 
     # get joint angle and velocity feedback
@@ -110,7 +110,7 @@ def tick():
 
 # Open main window
 try:
-    main_window = MainWindow(sim_interface, robot_config)
+    main_window = MainWindow(sim_interface, robot_model)
     main_window.exec(tick)
 finally:
     q_track = np.array(q_track)

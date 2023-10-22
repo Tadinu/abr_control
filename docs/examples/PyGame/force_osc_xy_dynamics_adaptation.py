@@ -19,15 +19,15 @@ from abr_control.controllers import OSC, Damping, signals
 from abr_control.interfaces.pygame import PyGame
 
 # initialize our robot config
-robot_config = arm.Config()
+robot_model = arm.Config()
 # create our arm simulation
-arm_sim = arm.ArmSim(robot_config)
+arm_sim = arm.ArmSim(robot_model)
 
 # damp the movements of the arm
-damping = Damping(robot_config, kv=10)
+damping = Damping(robot_model, kv=10)
 # create an operational space controller
 ctrlr = OSC(
-    robot_config,
+    robot_model,
     kp=50,
     null_controllers=[damping],
     # control (x, y) out of [x, y, z, alpha, beta, gamma]
@@ -36,8 +36,8 @@ ctrlr = OSC(
 
 # create our nonlinear adaptive controller
 adapt = signals.DynamicsAdaptation(
-    n_input=robot_config.N_JOINTS,
-    n_output=robot_config.N_JOINTS,
+    n_input=robot_model.N_JOINTS,
+    n_output=robot_model.N_JOINTS,
     pes_learning_rate=1e-4,
     means=[0, 0, 0],
     variances=[np.pi, np.pi, np.pi],
@@ -56,19 +56,19 @@ def on_keypress(self, key):
 
 
 # create our interface
-interface = PyGame(robot_config, arm_sim, on_click=on_click, on_keypress=on_keypress)
+interface = PyGame(robot_model, arm_sim, on_click=on_click, on_keypress=on_keypress)
 interface.connect()
 interface.adaptation = False  # set adaptation False to start
 
 # create a target
 feedback = interface.get_feedback()
-target_xyz = robot_config.Tx("EE", feedback["q"])
+target_xyz = robot_model.Tx("EE", feedback["q"])
 target_angles = np.zeros(3)
 interface.set_target(target_xyz)
 
 # get Jacobians to each link for calculating perturbation
 J_links = [
-    robot_config._calc_J(f"link{ii}", x=[0, 0, 0]) for ii in range(robot_config.N_LINKS)
+    robot_model._calc_J(f"link{ii}", x=[0, 0, 0]) for ii in range(robot_model.N_LINKS)
 ]
 
 
@@ -81,7 +81,7 @@ try:
     while 1:
         # get arm feedback
         feedback = interface.get_feedback()
-        hand_xyz = robot_config.Tx("EE", feedback["q"])
+        hand_xyz = robot_model.Tx("EE", feedback["q"])
 
         target = np.hstack([target_xyz, target_angles])
         # generate an operational space control signal
@@ -98,8 +98,8 @@ try:
             )
 
         fake_gravity = np.array([[0, -9.81, 0, 0, 0, 0]]).T * 10.0
-        g = np.zeros((robot_config.N_JOINTS, 1))
-        for ii in range(robot_config.N_LINKS):
+        g = np.zeros((robot_model.N_JOINTS, 1))
+        for ii in range(robot_model.N_LINKS):
             pars = tuple(feedback["q"]) + tuple([0, 0, 0])
             g += np.dot(J_links[ii](*pars).T, fake_gravity)
         u += g.squeeze()

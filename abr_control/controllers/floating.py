@@ -10,7 +10,7 @@ class Floating(Controller):
     as an accurate mass / inertia model is provided)
     Parameters
     ----------
-    robot_config: class instance
+    robot_model: class instance
         contains all relevant information about the arm
         such as: number of joints, number of links, mass information etc.
     task_space: boolean, optional (Default: False)
@@ -18,8 +18,8 @@ class Floating(Controller):
         gravity in task-space
     """
 
-    def __init__(self, robot_config, dynamic=False, task_space=False):
-        super().__init__(robot_config)
+    def __init__(self, robot_model, dynamic=False, task_space=False):
+        super().__init__(robot_model)
 
         self.dynamic = dynamic
         self.task_space = task_space
@@ -34,14 +34,14 @@ class Floating(Controller):
             the current joint velocities [radians/second]
         """
         # calculate the effect of gravity in joint space
-        g = self.robot_config.g(q)
+        g = self.robot_model.g(q)
 
         if self.task_space:
             # get the Jacobian
-            J = self.robot_config.J("EE", q)[:3]
+            J = self.robot_model.J("EE", q)[:3]
 
             # calculate the inertia matrix in joint space
-            M = self.robot_config.M(q)
+            M = self.robot_model.M(q)
             # calculate the inertia matrix in task space
             M_inv = np.linalg.inv(M)
 
@@ -65,7 +65,7 @@ class Floating(Controller):
 
         if self.dynamic:
             # compensate for current velocity
-            M = self.robot_config.M(q) if M is None else M
+            M = self.robot_model.M(q) if M is None else M
             u -= np.dot(M, dq)
 
         return u

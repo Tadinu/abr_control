@@ -4,16 +4,10 @@ class Interface:
     The purpose of interfaces is to abstract away the API
     and overhead of connection / disconnection etc for each
     of the different systems that can be controlled.
-
-    Parameters
-    ----------
-    robot_config : class instance
-        contains all relevant information about the arm
-        such as: number of joints, number of links, mass information etc.
     """
 
-    def __init__(self, robot_config):
-        self.robot_config = robot_config
+    def __init__(self):
+        pass
 
     def connect(self):
         """All initial setup."""

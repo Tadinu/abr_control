@@ -126,7 +126,7 @@ class BaseConfig:
         """Creates a folder, saves generated cython functions
 
         Create a folder in the users cache directory, named based on a hash
-        of the current robot_config subclass.
+        of the current robot_model subclass.
 
         If use_cython is True, uses the created folder to save the autowrap
         binaries, so that they can be loaded in quickly later.
@@ -149,7 +149,7 @@ class BaseConfig:
         """Attempts to load in saved files
 
         Attempt to load in the specified function or expression from
-        saved file, in a subfolder based on the hash of the robot_config.
+        saved file, in a subfolder based on the hash of the robot_model.
         Takes a filename as an input and returns the function or expression,
         depending on if lambdify is True or False, respectively.
 

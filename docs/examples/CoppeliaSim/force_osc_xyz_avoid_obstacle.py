@@ -12,14 +12,14 @@ from abr_control.controllers import OSC, AvoidObstacles, Damping
 from abr_control.interfaces import CoppeliaSim
 
 # initialize our robot config
-robot_config = arm.Config()
+robot_model = arm.Config()
 
-avoid = AvoidObstacles(robot_config)
+avoid = AvoidObstacles(robot_model)
 # damp the movements of the arm
-damping = Damping(robot_config, kv=10)
+damping = Damping(robot_model, kv=10)
 # instantiate the REACH controller with obstacle avoidance
 ctrlr = OSC(
-    robot_config,
+    robot_model,
     kp=200,
     null_controllers=[avoid, damping],
     vmax=[0.5, 0],  # [m/s, rad/s]
@@ -28,7 +28,7 @@ ctrlr = OSC(
 )
 
 # create our CoppeliaSim interface
-interface = CoppeliaSim(robot_config, dt=0.005)
+interface = CoppeliaSim(robot_model, dt=0.005)
 interface.connect()
 
 # set up lists for tracking data
@@ -43,7 +43,7 @@ obstacle_xyz = np.array([0.09596, -0.2661, 0.64204])
 try:
     # get visual position of end point of object
     feedback = interface.get_feedback()
-    start = robot_config.Tx("EE", q=feedback["q"])
+    start = robot_model.Tx("EE", q=feedback["q"])
 
     # make the target offset from that start position
     target_xyz = start + np.array([0.2, -0.2, 0.0])
@@ -81,7 +81,7 @@ try:
         interface.send_forces(u)
 
         # calculate end-effector position
-        ee_xyz = robot_config.Tx("EE", q=feedback["q"])
+        ee_xyz = robot_model.Tx("EE", q=feedback["q"])
         # track data
         ee_track.append(np.copy(ee_xyz))
         target_track.append(np.copy(target[:3]))

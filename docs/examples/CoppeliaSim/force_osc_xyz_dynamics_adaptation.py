@@ -12,13 +12,13 @@ from abr_control.controllers import OSC, Damping, signals
 from abr_control.interfaces import CoppeliaSim
 
 # initialize our robot config for the jaco2
-robot_config = arm.Config()
+robot_model = arm.Config()
 
 # damp the movements of the arm
-damping = Damping(robot_config, kv=10)
+damping = Damping(robot_model, kv=10)
 # instantiate controller
 ctrlr = OSC(
-    robot_config,
+    robot_model,
     kp=200,
     null_controllers=[damping],
     vmax=[0.5, 0],  # [m/s, rad/s]
@@ -38,9 +38,9 @@ adapt = signals.DynamicsAdaptation(
 )
 
 # create our CoppeliaSim interface
-interface = CoppeliaSim(robot_config, dt=0.005)
+interface = CoppeliaSim(robot_model, dt=0.005)
 interface.connect()
-interface.send_target_angles(q=robot_config.START_ANGLES)
+interface.send_target_angles(q=robot_model.START_ANGLES)
 
 # set up lists for tracking data
 ee_track = []
@@ -48,14 +48,14 @@ target_track = []
 
 # get Jacobians to each link for calculating perturbation
 J_links = [
-    robot_config._calc_J(f"link{ii}", x=[0, 0, 0]) for ii in range(robot_config.N_LINKS)
+    robot_model._calc_J(f"link{ii}", x=[0, 0, 0]) for ii in range(robot_model.N_LINKS)
 ]
 
 
 try:
     # get the end-effector's initial position
     feedback = interface.get_feedback()
-    start = robot_config.Tx("EE", feedback["q"])
+    start = robot_model.Tx("EE", feedback["q"])
 
     # make the target offset from that start position
     target_xyz = start + np.array([0.2, -0.2, 0.0])
@@ -77,7 +77,7 @@ try:
             target=target,
         )
 
-        u_adapt = np.zeros(robot_config.N_JOINTS)
+        u_adapt = np.zeros(robot_model.N_JOINTS)
         u_adapt[1:3] = adapt.generate(
             input_signal=np.array([feedback["q"][1], feedback["q"][2]]),
             training_signal=np.array(
@@ -87,21 +87,21 @@ try:
         u += u_adapt
 
         # add an additional force for the controller to adapt to
-        extra_gravity = robot_config.g(feedback["q"]) * 2
+        extra_gravity = robot_model.g(feedback["q"]) * 2
         u += extra_gravity
 
         # send forces into CoppeliaSim, step the sim forward
         interface.send_forces(u)
 
         # calculate end-effector position
-        ee_xyz = robot_config.Tx("EE", q=feedback["q"])
+        ee_xyz = robot_model.Tx("EE", q=feedback["q"])
         # track data
         ee_track.append(np.copy(ee_xyz))
         target_track.append(np.copy(target[:3]))
 
         count += 1
 
-        ee_xyz = robot_config.Tx("EE", q=feedback["q"])
+        ee_xyz = robot_model.Tx("EE", q=feedback["q"])
         interface.set_xyz(name="hand", xyz=ee_xyz)
 
 except:

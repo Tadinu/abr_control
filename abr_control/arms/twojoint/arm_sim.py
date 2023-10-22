@@ -8,26 +8,26 @@ class ArmSim:
 
     Parameters
     ----------
-    robot_config : class instance
+    robot_model : class instance
         contains all relevant information about the arm
         such as: number of joints, number of links, mass information etc.
     dt: float, optional (Default: 0.001)
         simulation time step [seconds]
-    q_init : numpy.array, optional (Default: robot_config.START_ANGLES)
+    q_init : numpy.array, optional (Default: robot_model.START_ANGLES)
         start joint angles [radians]
     """
 
-    def __init__(self, robot_config, dt=0.001, q_init=None):
+    def __init__(self, robot_model, dt=0.001, q_init=None):
 
-        self.robot_config = robot_config
+        self.robot_model = robot_model
 
-        self.q_init = q_init if q_init is not None else self.robot_config.START_ANGLES
+        self.q_init = q_init if q_init is not None else self.robot_model.START_ANGLES
         self.reset()
 
-        M = self.robot_config._M_LINKS
+        M = self.robot_model._M_LINKS
         L = []
-        for ii in range(int(self.robot_config.L.shape[0] / 2)):
-            L.append(np.sum(self.robot_config.L[ii * 2 : ii * 2 + 2]))
+        for ii in range(int(self.robot_model.L.shape[0] / 2)):
+            L.append(np.sum(self.robot_model.L[ii * 2 : ii * 2 + 2]))
 
         # compute non changing constants
         self.K1 = (1 / 3.0 * M[1][0, 0] + M[2][0, 0]) * L[1] ** 2.0 + 1 / 3.0 * M[2][
@@ -90,10 +90,10 @@ class ArmSim:
         """Compute x,y position of the hand"""
 
         xy = [
-            self.robot_config.Tx(f"joint{ii}", q=self.q)
-            for ii in range(self.robot_config.N_JOINTS)
+            self.robot_model.Tx(f"joint{ii}", q=self.q)
+            for ii in range(self.robot_model.N_JOINTS)
         ]
-        xy = np.vstack([xy, self.robot_config.Tx("EE", q=self.q)])
+        xy = np.vstack([xy, self.robot_model.Tx("EE", q=self.q)])
         self.joints_x = xy[:, 0]
         self.joints_y = xy[:, 1]
         return np.array([self.joints_x, self.joints_y])

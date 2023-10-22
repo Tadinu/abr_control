@@ -18,16 +18,16 @@ from abr_control.interfaces.pygame import PyGame
 
 dt = 0.001
 # initialize our robot config
-robot_config = arm.Config()
+robot_model = arm.Config()
 
 # create our arm simulation
-arm_sim = arm.ArmSim(robot_config)
+arm_sim = arm.ArmSim(robot_model)
 
 # damp the movements of the arm
-damping = Damping(robot_config, kv=10)
+damping = Damping(robot_model, kv=10)
 # create an operational space controller
 ctrlr = OSC(
-    robot_config,
+    robot_model,
     kp=200,
     null_controllers=[damping],
     # control (gamma) out of [x, y, z, alpha, beta, gamma]
@@ -42,7 +42,7 @@ path_planner = PathPlanner(
 
 
 # create our interface
-interface = PyGame(robot_config, arm_sim, dt=dt)
+interface = PyGame(robot_model, arm_sim, dt=dt)
 interface.connect()
 first_pass = True
 
@@ -58,9 +58,9 @@ try:
     while 1:
         # get arm feedback
         feedback = interface.get_feedback()
-        hand_xyz = robot_config.Tx("EE", feedback["q"])
+        hand_xyz = robot_model.Tx("EE", feedback["q"])
         dx_track.append(
-            np.linalg.norm(np.dot(robot_config.J("EE", feedback["q"]), feedback["dq"]))
+            np.linalg.norm(np.dot(robot_model.J("EE", feedback["q"]), feedback["dq"]))
         )
 
         if count - buffer_steps == path_planner.n_timesteps or first_pass:

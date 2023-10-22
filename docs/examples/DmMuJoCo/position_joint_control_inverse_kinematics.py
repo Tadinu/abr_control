@@ -6,27 +6,27 @@ to the target, which changes every n time steps.
 """
 import numpy as np
 
-from abr_control.arms.mujoco_config import MujocoConfig as arm
+from abr_control.arms.mujoco_model import MujocoModel as arm
 from abr_control.controllers import path_planners
-from abr_control.interfaces.mujoco import AbrMujoco
+from abr_control.interfaces.abr_mujoco import AbrMujoco
 from abr_control.utils import transformations
 
-from main_window import MainWindow
+from abr_control.app.main_window import MainWindow
 
 # initialize our robot config for the jaco2
-robot_config = arm("ur5", use_sim_state=False)
+robot_model = arm("ur5", use_sim_state=False)
 
 # create our path planner
 n_timesteps = 2000
-path_planner = path_planners.InverseKinematics(robot_config)
+path_planner = path_planners.InverseKinematics(robot_model)
 
 # create our sim_interface
 DT = 0.001
 OFFSCREEN_RENDERING=True
-sim_interface = AbrMujoco(robot_config, dt=DT, visualize=True, create_offscreen_rendercontext=OFFSCREEN_RENDERING)
+sim_interface = AbrMujoco(robot_model, dt=DT, visualize=True, create_offscreen_rendercontext=OFFSCREEN_RENDERING)
 sim_interface.connect()
 sim_interface.init_viewer()
-sim_interface.send_target_angles(robot_config.START_ANGLES)
+sim_interface.send_target_angles(robot_model.START_ANGLES)
 feedback = sim_interface.get_feedback()
 count = 0
 
@@ -34,7 +34,7 @@ ee_id = sim_interface.model.name2id('EE', 'body')
 target_id = sim_interface.sim.model.name2id('target', 'body')
 
 def tick():
-    global sim_interface, robot_config, path_planner, count, n_timesteps, target_id, ee_id
+    global sim_interface, robot_model, path_planner, count, n_timesteps, target_id, ee_id
     #print(f'count {count} n_timesteps {n_timesteps}')
     if count % n_timesteps == 0:
         feedback = sim_interface.get_feedback()
@@ -65,12 +65,12 @@ def tick():
     target = path_planner.next()[0]
 
     # use position control
-    #print("target angles: ", target[: robot_config.N_JOINTS])
-    sim_interface.send_target_angles(target[: robot_config.N_JOINTS])
+    #print("target angles: ", target[: robot_model.N_JOINTS])
+    sim_interface.send_target_angles(target[: robot_model.N_JOINTS])
 
     count += 1
     return sim_interface.tick()
 
 # Open main window
-main_window = MainWindow(sim_interface, robot_config)
+main_window = MainWindow(sim_interface, robot_model)
 main_window.exec(tick)

@@ -10,16 +10,16 @@ from abr_control.controllers import OSC, AvoidObstacles, Damping
 from abr_control.interfaces.pygame import PyGame
 
 # initialize our robot config
-robot_config = arm.Config()
+robot_model = arm.Config()
 # create our arm simulation
-arm_sim = arm.ArmSim(robot_config)
+arm_sim = arm.ArmSim(robot_model)
 
-avoid = AvoidObstacles(robot_config, threshold=1, gain=30)
+avoid = AvoidObstacles(robot_model, threshold=1, gain=30)
 # damp the movements of the arm
-damping = Damping(robot_config, kv=10)
+damping = Damping(robot_model, kv=10)
 # create an operational space controller
 ctrlr = OSC(
-    robot_config,
+    robot_model,
     kp=10,
     null_controllers=[avoid, damping],
     vmax=[10, 0],  # [m/s, rad/s]
@@ -34,7 +34,7 @@ def on_click(self, mouse_x, mouse_y):
 
 
 # create our interface
-interface = PyGame(robot_config, arm_sim, on_click=on_click)
+interface = PyGame(robot_model, arm_sim, on_click=on_click)
 interface.connect()
 
 # create an obstacle
@@ -55,7 +55,7 @@ try:
     while 1:
         # get arm feedback
         feedback = interface.get_feedback()
-        hand_xyz = robot_config.Tx("EE", feedback["q"])
+        hand_xyz = robot_model.Tx("EE", feedback["q"])
 
         target = np.hstack([target_xyz, target_angles])
         # generate an operational space control signal

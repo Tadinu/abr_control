@@ -3,8 +3,8 @@ import pytest
 
 pytest.importorskip("mujoco")
 
-from abr_control.arms.mujoco_config import MujocoConfig as arm  # pylint: disable=C0413
-from abr_control.interfaces.mujoco import AbrMujoco  # pylint: disable=C0413
+from abr_control.arms.mujoco_model import MujocoModel as arm  # pylint: disable=C0413
+from abr_control.interfaces.abr_mujoco import AbrMujoco  # pylint: disable=C0413
 
 from .dummy_mujoco_arm import TwoJoint  # pylint: disable=C0413
 
@@ -19,22 +19,22 @@ from .dummy_mujoco_arm import TwoJoint  # pylint: disable=C0413
 def test_g():
     test_arm = TwoJoint()
     # set up the Mujoco interface and config
-    robot_config = arm("twojoint")
-    interface = AbrMujoco(robot_config=robot_config, visualize=False)
+    robot_model = arm("twojoint")
+    interface = AbrMujoco(robot_model=robot_model, visualize=False)
     interface.connect()
 
     q_vals = np.linspace(0, 2 * np.pi, 50)
     for q0 in q_vals:
         for q1 in q_vals:
             q = [q0, q1]
-            assert np.allclose(robot_config.g(q), test_arm.g(q))
+            assert np.allclose(robot_model.g(q), test_arm.g(q))
 
 
 def test_J():
     test_arm = TwoJoint(L0=0.2, L1=0.4)
     # set up the Mujoco interface and config
-    robot_config = arm("twojoint")
-    interface = AbrMujoco(robot_config=robot_config, visualize=False)
+    robot_model = arm("twojoint")
+    interface = AbrMujoco(robot_model=robot_model, visualize=False)
     interface.connect()
 
     q_vals = np.linspace(0, 2 * np.pi, 50)
@@ -42,27 +42,27 @@ def test_J():
         for q1 in q_vals:
             q = [q0, q1]
             assert np.allclose(
-                robot_config.J("link0", q, object_type="geom"), test_arm.J_link0(q)
+                robot_model.J("link0", q, object_type="geom"), test_arm.J_link0(q)
             )
             assert np.allclose(
-                robot_config.J("link1", q, object_type="geom"), test_arm.J_link1(q)
+                robot_model.J("link1", q, object_type="geom"), test_arm.J_link1(q)
             )
             assert np.allclose(
-                robot_config.J("link2", q, object_type="geom"), test_arm.J_link2(q)
+                robot_model.J("link2", q, object_type="geom"), test_arm.J_link2(q)
             )
-            assert np.allclose(robot_config.J("EE", q), test_arm.J_EE(q))
+            assert np.allclose(robot_model.J("EE", q), test_arm.J_EE(q))
 
 
 # def test_M(plt):
 #     test_arm = TwoJoint(L0=0.2, L1=0.4)
-#     robot_config = arm("twojoint")
-#     interface = Mujoco(robot_config=robot_config, visualize=False)
+#     robot_model = arm("twojoint")
+#     interface = Mujoco(robot_model=robot_model, visualize=False)
 #     interface.connect()
 #
-#     muj_I = robot_config.sim.model.body_inertia
-#     muj_m = robot_config.sim.model.body_mass
-#     link1 = robot_config.sim.model.body_name2id("link1")
-#     link2 = robot_config.sim.model.body_name2id("link2")
+#     muj_I = robot_model.sim.model.body_inertia
+#     muj_m = robot_model.sim.model.body_mass
+#     link1 = robot_model.sim.model.body_name2id("link1")
+#     link2 = robot_model.sim.model.body_name2id("link2")
 #
 #     test_I = np.vstack([np.diag(I) for I in np.asarray(test_arm.M_LINKS)[:, 3:, 3:]])
 #     test_m = np.asarray(test_arm.M_LINKS)[:, 0, 0]
@@ -82,8 +82,8 @@ def test_J():
 #             q = [q0, q1]
 #
 #             # get jacobians
-#             muj_J1 = robot_config.J("link1", q)
-#             muj_J2 = robot_config.J("link2", q)
+#             muj_J1 = robot_model.J("link1", q)
+#             muj_J2 = robot_model.J("link2", q)
 #
 #             test_J1 = test_arm.J_link1(q)
 #             test_J2 = test_arm.J_link2(q)
@@ -91,7 +91,7 @@ def test_J():
 #             assert np.allclose(muj_J1, test_J1)
 #             assert np.allclose(muj_J2, test_J2)
 #
-#             muj_M = robot_config.M(q)
+#             muj_M = robot_model.M(q)
 #
 #             # following the formulas from Todorov's Featherstone slide 4
 #             print(muj_I)
@@ -101,23 +101,23 @@ def test_J():
 #             print("Ic1: \n", Ic1)
 #             print("Ic2: \n", Ic2)
 #
-#             # c1 = robot_config.Tx('link1', q=q)
-#             # c2 = robot_config.Tx('link2', q=q)
-#             c1 = robot_config.sim.model.body_ipos[link1]
-#             c2 = robot_config.sim.model.body_ipos[link2]
+#             # c1 = robot_model.Tx('link1', q=q)
+#             # c2 = robot_model.Tx('link2', q=q)
+#             c1 = robot_model.sim.model.body_ipos[link1]
+#             c2 = robot_model.sim.model.body_ipos[link2]
 #
-#             print("simple1: ", robot_config.sim.model.body_simple[link1])
-#             print("simple2: ", robot_config.sim.model.body_simple[link2])
-#             print("sameframe1: ", robot_config.sim.model.body_sameframe[link1])
-#             print("sameframe2: ", robot_config.sim.model.body_sameframe[link2])
-#             print("pos1: ", robot_config.sim.model.body_pos[link1])
-#             print("pos2: ", robot_config.sim.model.body_pos[link2])
-#             print("quat1: ", robot_config.sim.model.body_quat[link1])
-#             print("quat2: ", robot_config.sim.model.body_quat[link2])
-#             print("ipos1: ", robot_config.sim.model.body_ipos[link1])
-#             print("ipos2: ", robot_config.sim.model.body_ipos[link2])
-#             print("iquat1: ", robot_config.sim.model.body_iquat[link1])
-#             print("iquat2: ", robot_config.sim.model.body_iquat[link2])
+#             print("simple1: ", robot_model.sim.model.body_simple[link1])
+#             print("simple2: ", robot_model.sim.model.body_simple[link2])
+#             print("sameframe1: ", robot_model.sim.model.body_sameframe[link1])
+#             print("sameframe2: ", robot_model.sim.model.body_sameframe[link2])
+#             print("pos1: ", robot_model.sim.model.body_pos[link1])
+#             print("pos2: ", robot_model.sim.model.body_pos[link2])
+#             print("quat1: ", robot_model.sim.model.body_quat[link1])
+#             print("quat2: ", robot_model.sim.model.body_quat[link2])
+#             print("ipos1: ", robot_model.sim.model.body_ipos[link1])
+#             print("ipos2: ", robot_model.sim.model.body_ipos[link2])
+#             print("iquat1: ", robot_model.sim.model.body_iquat[link1])
+#             print("iquat2: ", robot_model.sim.model.body_iquat[link2])
 #
 #             # function to generate a matrix such that
 #             # np.dot(tilde(x), y) = np.cross(x, y)
@@ -158,8 +158,8 @@ def test_J():
 
 def test_R():
     test_arm = TwoJoint()
-    robot_config = arm("twojoint")
-    interface = AbrMujoco(robot_config=robot_config, visualize=False)
+    robot_model = arm("twojoint")
+    interface = AbrMujoco(robot_model=robot_model, visualize=False)
     interface.connect()
 
     q_vals = np.linspace(0, 2 * np.pi, 50)
@@ -167,12 +167,12 @@ def test_R():
         for q1 in q_vals:
             q = [q0, q1]
             assert np.allclose(
-                robot_config.R("link1", q), test_arm.R_link1(q), atol=1e-5
+                robot_model.R("link1", q), test_arm.R_link1(q), atol=1e-5
             )
             assert np.allclose(
-                robot_config.R("link2", q), test_arm.R_link2(q), atol=1e-5
+                robot_model.R("link2", q), test_arm.R_link2(q), atol=1e-5
             )
-            assert np.allclose(robot_config.R("EE", q), test_arm.R_EE(q), atol=1e-5)
+            assert np.allclose(robot_model.R("EE", q), test_arm.R_EE(q), atol=1e-5)
 
 
 # TODO
@@ -181,8 +181,8 @@ def test_R():
 
 def test_C():
     test_arm = TwoJoint()
-    robot_config = arm("twojoint")
-    interface = AbrMujoco(robot_config=robot_config, visualize=False)
+    robot_model = arm("twojoint")
+    interface = AbrMujoco(robot_model=robot_model, visualize=False)
     interface.connect()
 
     with pytest.raises(NotImplementedError):
@@ -193,7 +193,7 @@ def test_C():
                 for dq0 in q_vals:
                     for dq1 in q_vals:
                         dq = [dq0, dq1]
-                        assert np.allclose(robot_config.C(q, dq), test_arm.C(q, dq))
+                        assert np.allclose(robot_model.C(q, dq), test_arm.C(q, dq))
 
 
 # TODO
@@ -203,8 +203,8 @@ def test_C():
 def test_Tx():
     test_arm = TwoJoint()
     # set up the Mujoco interface and config
-    robot_config = arm("twojoint")
-    interface = AbrMujoco(robot_config=robot_config, visualize=False)
+    robot_model = arm("twojoint")
+    interface = AbrMujoco(robot_model=robot_model, visualize=False)
     interface.connect()
 
     q_vals = np.linspace(0, 2 * np.pi, 50)
@@ -212,24 +212,24 @@ def test_Tx():
         for q1 in q_vals:
             q = [q0, q1]
             assert np.allclose(
-                robot_config.Tx("link0", q, object_type="geom"),
+                robot_model.Tx("link0", q, object_type="geom"),
                 test_arm.Tx_link0(q),
                 atol=1e-5,
             )
             assert np.allclose(
-                robot_config.Tx("joint0", q, object_type="joint"),
+                robot_model.Tx("joint0", q, object_type="joint"),
                 test_arm.Tx_joint0(q),
                 atol=1e-5,
             )
             assert np.allclose(
-                robot_config.Tx("link1", q, object_type="geom"),
+                robot_model.Tx("link1", q, object_type="geom"),
                 test_arm.Tx_link1(q),
                 atol=1e-5,
             )
             assert np.allclose(
-                robot_config.Tx("joint1", q, object_type="joint"), test_arm.Tx_joint1(q)
+                robot_model.Tx("joint1", q, object_type="joint"), test_arm.Tx_joint1(q)
             )
             assert np.allclose(
-                robot_config.Tx("link2", q, object_type="geom"), test_arm.Tx_link2(q)
+                robot_model.Tx("link2", q, object_type="geom"), test_arm.Tx_link2(q)
             )
-            assert np.allclose(robot_config.Tx("EE", q), test_arm.Tx_EE(q))
+            assert np.allclose(robot_model.Tx("EE", q), test_arm.Tx_EE(q))
