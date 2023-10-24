@@ -138,10 +138,10 @@ class DeviceModel(MujocoModel):
         """
         sensor_data = self.sim_interface.get_sensor_data()
         if self.name == "ur5right":
-            force = np.matmul(self.__get_R(False), np.hstack([sensor_data[0:3],0]))
+            force = np.matmul(self.__get_R(False), sensor_data[0:3])
             return force
         if self.name == "ur5left":
-            force = np.matmul(self.__get_R(False), np.hstack([sensor_data[6:9],0]))
+            force = np.matmul(self.__get_R(False), sensor_data[6:9])
             return force
         else:
             return np.zeros(3)
@@ -153,10 +153,10 @@ class DeviceModel(MujocoModel):
         """
         sensor_data = self.sim_interface.get_sensor_data()
         if self.name == "ur5right":
-            force = np.matmul(self.__get_R(False), np.hstack([sensor_data[3:6],0]))
+            force = np.matmul(self.__get_R(False), sensor_data[3:6])
             return force
         if self.name == "ur5left":
-            force = np.matmul(self.__get_R(False), np.hstack([sensor_data[9:12],0]))
+            force = np.matmul(self.__get_R(False), sensor_data[9:12])
             return force
         else:
             return np.zeros(3)

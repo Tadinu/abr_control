@@ -116,7 +116,7 @@ class OSC2():
             u_task[3:] = quat2euler(qconjugate(q_r)) # -q_r[1:] * np.sign(q_r[0])
         return u_task
     
-    def generate(self, targets: Dict[str, Target]):
+    def generate_forces(self, targets: Dict[str, Target]):
         """
             Generate forces for the corresponding devices which are in the 
             robot's sub-devices. Accepts a dictionary of device names (keys), 
@@ -134,12 +134,13 @@ class OSC2():
         # J, J_idxs = self.robot.get_jacobian(targets.keys())
         J = np.array([])
         for device_name in targets.keys():
-            J = np.vstack([J, Js[device_name]]) if J.size else Js[device_name]
+            print(Js[device_name], Js[device_name].shape)
+            J = np.hstack([J, Js[device_name]]) if J.size else Js[device_name]
         # Get the inertia matrix for the robot
-        # M = self.robot.get_M()
         M = robot_state[RobotState.M]
         
         # Compute the inverse matrices used for task space operations 
+        print(J.shape, M.shape)
         Mx, M_inv = self.__Mx(J, M)
 
         # Initialize the control vectors and sim data needed for control calculations
@@ -170,7 +171,7 @@ class OSC2():
             kv = self.device_configs[device_model.name]['kv']
             target_vel = np.hstack([target.get_xyz_vel(), target.get_abg_vel()])
             if np.all(target_vel) == 0:
-                u_all[device_model.joint_ids_all] = -1 * kv * uv_all[device_model.joint_ids_all]
+                u_all[np.arange(len(device_model.joint_ids_all))] = -1 * kv * uv_all[np.arange(len(device_model.joint_ids_all)) ]
             else:
                 diff = dx[J_idxs[device_name]] - np.array(target_vel)[device_model.ctrlr_dof]
                 u_task[device_model.ctrlr_dof] += kv * diff * damping[device_model.ctrlr_dof]

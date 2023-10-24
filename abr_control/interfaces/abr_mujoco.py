@@ -243,21 +243,23 @@ class AbrMujoco(Interface):
         self.set_mocap_xyz_by_id(self.sim_model.name2id(name, 'body'), xyz)
 
     def get_orientation_by_id(self, id, as_quat=True, object_type="body"):
+        quat = None
+        xmat = None
         if object_type == "mocap":  # commonly queried to find target
             quat = self.get_mocap_orientation_by_id(id)
         elif object_type == "body":
-            quat = self.data_ptr.xquat[id]
+            quat = self.data_ptr.xquat[id] # Shape (4,)
         elif object_type == "geom":
-            xmat = self.data_ptr.geom_xmat[id]
+            xmat = self.data_ptr.geom_xmat[id] # Shape (9,)
             quat = transformations.quaternion_from_matrix(xmat.reshape((3, 3)))
         elif object_type == "site":
-            xmat = self.data_ptr.site_xmat[id]
+            xmat = self.data_ptr.site_xmat[id] # Shape (9,)
             quat = transformations.quaternion_from_matrix(xmat.reshape((3, 3)))
         else:
             raise Exception(
                 f"get_orientation for {object_type} object type not supported"
             )
-        return np.copy(quat) if as_quat else transformations.quaternion_matrix(quat)
+        return np.copy(quat) if as_quat else xmat.reshape((3, 3))
 
     def get_orientation(self, name, as_quat=True, object_type="body"):
         """Returns the orientation of an object as the [w x y z] quaternion [radians]

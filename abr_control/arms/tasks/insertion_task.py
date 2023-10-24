@@ -203,7 +203,7 @@ class InsertionTask(MujocoApp):
         time_thread.start()
         # Apply gripper forces for duration specified
         while self.timer_running:
-            ctrlr_output = self.controller.generate(self.targets)
+            ctrlr_output = self.controller.generate_forces(self.targets)
             self.send_forces(ctrlr_output, gripper_force=params['gripper_force'], update_errors=self.active_arm.name)
     
     def set_waypoint_targets(self, params):
@@ -299,7 +299,7 @@ class InsertionTask(MujocoApp):
             # Limit the max velocity of the robot according to the given params
             self.active_arm.max_vel[0] = max(params['min_speed_xyz'], 
                 min(params['max_speed_xyz'], params['kp']*self.errors[self.active_arm.name]))
-            ctrlr_output = self.controller.generate(self.targets)
+            ctrlr_output = self.controller.generate_forces(self.targets)
             self.send_forces(ctrlr_output, gripper_force=params['gripper_force'], update_errors=self.active_arm.name)
     
     def initialize_action_objects(self):

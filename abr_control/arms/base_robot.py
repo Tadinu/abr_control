@@ -52,7 +52,8 @@ class BaseRobot():
             J_sub = device_model.get_state(DeviceState.J)
             J_idxs[name] = np.arange(start_idx, start_idx + J_sub.shape[0])
             start_idx += J_sub.shape[0]
-            J_sub = J_sub[:, self.joint_ids_all]
+            if J_sub != []:
+                J_sub = J_sub[:, np.arange(len(device_model.joint_ids_all))]
             Js[name] = J_sub
         return Js, J_idxs
     
@@ -60,7 +61,7 @@ class BaseRobot():
         #dq = self.sim.data.qvel[self.joint_ids_all]
         dq = np.zeros(self.joint_ids_all.shape)
         for dev in self.device_models:
-            dq[dev.get_all_joint_ids()] = dev.get_state(DeviceState.DQ)
+            dq[np.arange(len(dev.joint_ids_all))] = dev.get_state(DeviceState.DQ)
         return dq
 
     def __get_M(self):
