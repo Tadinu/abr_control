@@ -61,6 +61,18 @@ and add the following line to your `~/.bashrc` file::
 
     export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGLEW.so
 
+Robot Meshes:
+https://www.roboti.us/forum/index.php?resources/authors/travis-dewolf.1583/
+
+Jaco2:
+https://drive.google.com/open?id=1doam-DgkW7OSPnwWZQM84edzX84ot-GK
+
+UR5:
+https://drive.google.com/file/d/1SjWRUl-D1FZ5fB2cy4jF4X9wTsQ5LWzo
+
+Dual UR5:
+https://github.com/ir-lab/irl_control/tree/master/irl_control/meshes
+
 Pygame
 ------
 If you would like to use the Pygame API, from your anaconda environment run::
