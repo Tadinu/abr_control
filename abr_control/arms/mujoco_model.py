@@ -8,6 +8,7 @@ import numpy as np
 from abr_control.utils import download_meshes
 from abr_control.interfaces.interface import Interface
 
+# Ref: https://github.com/abr/abr_control/blob/main/abr_control/arms/mujoco_config.py
 class MujocoModel:
     """A wrapper on the Mujoco simulator to generate all the kinematics and
     dynamics calculations necessary for controllers.
@@ -75,9 +76,18 @@ class MujocoModel:
         self.joint_ids_all = np.array([])
         self.joint_names = np.array([])
 
-        self.xml_file = xml_file
-        self.xml_dir = os.path.dirname(xml_file) if (folder is None and xml_file is not None) else folder
-        
+        if os.path.isabs(xml_file):
+            self.xml_file = xml_file
+            self.xml_dir = os.path.dirname(xml_file) if (folder is None and xml_file is not None) else folder
+        elif folder:
+            self.xml_dir = folder
+            self.xml_file = os.path.join(self.xml_dir, xml_file)
+        else:
+            arm_dir = xml_file.split("_")[0]
+            current_dir = os.path.dirname(__file__)
+            self.xml_file = os.path.join(current_dir, arm_dir, f"{xml_file}.xml")
+            self.xml_dir = os.path.join(current_dir, arm_dir)
+
         # Init configs
         self.init_configs(force_download)
 
@@ -336,11 +346,11 @@ class MujocoModel:
             mjp.mj_jacBodyCom(self.model_ptr, self.data_ptr, self._J3NP, self._J3NR, id)
         else:
             if object_type == "geom":
-                jacp = mjp.mj_jacGeom(self.model_ptr, self.data_ptr, self._J3NP, 0, id)
-                jacr = mjp.mj_jacGeom(self.model_ptr, self.data_ptr, 0, self._J3NR, id)
+                jacp = mjp.mj_jacGeom(self.model_ptr, self.data_ptr, self._J3NP, 0, id) # self.data.get_geom_jacp
+                jacr = mjp.mj_jacGeom(self.model_ptr, self.data_ptr, 0, self._J3NR, id) # self.data.get_geom_jacr
             elif object_type == "site":
-                jacp = mjp.mj_jacSite(self.model_ptr, self.data_ptr, self._J3NP, 0, id)
-                jacr = mjp.mj_jacSite(self.model_ptr, self.data_ptr, 0, self._J3NR, id)
+                jacp = mjp.mj_jacSite(self.model_ptr, self.data_ptr, self._J3NP, 0, id) # self.data.get_site_jacp
+                jacr = mjp.mj_jacSite(self.model_ptr, self.data_ptr, 0, self._J3NR, id) # self.data.get_site_jacr
             else:
                 raise Exception("Invalid object type specified: ", object_type)
 
@@ -397,10 +407,12 @@ class MujocoModel:
         if object_type == "body":
             #mjp.mju_quat2Mat(self._R9, self.data_ptr.xquat[id])
             self._R9 = self.data_ptr.xmat[id]
+            # OR
+            # mujoco.mju_quat2Mat(self._R9, self.data.body(name).xquat)
         elif object_type == "geom":
-            self._R9 = self.data_ptr.geom_xmat[id]
+            self._R9 = self.data_ptr.geom_xmat[id] # self.data.geom(name).xmat
         elif object_type == "site":
-            self._R9 = self.data_ptr.site_xmat[id]
+            self._R9 = self.data_ptr.site_xmat[id] # self.data.site(name).xmat
         else:
             raise Exception("Invalid object type specified: ", object_type)
 
@@ -425,6 +437,7 @@ class MujocoModel:
             old_q, old_dq, old_u = self._load_state(q)
 
         quaternion = np.copy(self.data_ptr.xquat[self.sim.model.name2id(name, 'body')])
+        # Or np.copy(self.data.body(name).xquat) if self.data is mujoco.MjData(self.model)
 
         if not self.use_sim_state and q is not None:
             self._load_state(old_q, old_dq, old_u)
@@ -480,19 +493,19 @@ class MujocoModel:
 
         id = self.sim_model.name2id(name, object_type)
         if object_type == "body":
-            Tx = np.copy(self.data_ptr.xpos[id])
+            Tx = np.copy(self.data_ptr.xpos[id]) # np.copy(self.data.body(name).xpos)
         elif object_type == "geom":
-            Tx = np.copy(self.data_ptr.geom_xpos[id])
+            Tx = np.copy(self.data_ptr.geom_xpos[id]) # np.copy(self.data.geom(name).xpos)
         elif object_type == "joint":
-            Tx = np.copy(self.data_ptr.xanchor[id])
+            Tx = np.copy(self.data_ptr.xanchor[id]) # np.copy(self.data.joint(name).xanchor)
         elif object_type == "site":
-            Tx = np.copy(self.data_ptr.site_xpos[id])
+            Tx = np.copy(self.data_ptr.site_xpos[id]) # np.copy(self.data.site(name).xpos)
         elif object_type == "camera":
-            Tx = np.copy(self.data_ptr.cam_xpos[id])
+            Tx = np.copy(self.data_ptr.cam_xpos[id]) # np.copy(self.data.com(name).xpos)
         elif object_type == "light":
-            Tx = np.copy(self.data_ptr.light_xpos[id])
+            Tx = np.copy(self.data_ptr.light_xpos[id]) # np.copy(self.data.light(name).xpos)
         elif object_type == "mocap":
-            mocap_id = self.model_ptr.body_mocapid[id]
+            mocap_id = self.model_ptr.body_mocapid[id] # np.copy(self.data.mocap(name).pos)
             Tx = np.copy(self.data_ptr.mocap_pos[mocap_id])
         else:
             raise Exception("Invalid object type specified: ", object_type)
