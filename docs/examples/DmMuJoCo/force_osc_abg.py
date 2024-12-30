@@ -52,8 +52,8 @@ class Force_OSC_ABG(MujocoApp):
         self.send_forces(robot_model, u if use_joint_dyn_addrs else u_all, use_joint_dyn_addrs=use_joint_dyn_addrs)
 
         # track data
-        ee_matrix = self.get_rotation_matrix_by_id(ee_id).reshape(3,3)
-        ee_angles = transformations.euler_from_matrix(ee_matrix, axes="rxyz")
+        ee_rot_mat = self.get_rotation_matrix_by_id(ee_id).reshape(3,3)
+        ee_angles = transformations.euler_from_matrix(ee_rot_mat, axes="rxyz")
 
         ee_angles_track.append(ee_angles)
         target_angles_track.append(target_euler_angles)

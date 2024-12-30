@@ -1,3 +1,4 @@
+# Ref: https://github.com/ir-lab/bimanual-imitation/blob/main/irl_control/robot.py
 from .device_model import DeviceModel, DeviceState
 import numpy as np
 import mujoco as mjp
@@ -11,35 +12,42 @@ class RobotState(Enum):
     M = 'INERTIA'
     DQ = 'DQ'
     J = 'JACOBIAN'
+    G = 'GRAVITY'
 
 class BaseRobot():
     def __init__(self, robot_name, sim, device_models: List[DeviceModel], use_sim_state, collect_hz=1000):
         self.sim = sim
+        self._model = sim.model.ptr
+        self._data = sim.data.ptr
         self.__use_sim = use_sim_state
+        self.__running = False
         self.device_models = device_models
         self.device_models_dict: Dict[str, DeviceModel] = dict()
         for dev in self.device_models:
             self.device_models_dict[dev.name] = dev
 
         self.name = robot_name
-        self.num_scene_joints = self.sim.model.ptr.nv
+        self.num_scene_joints = self._model.nv
         self.M_vec = np.zeros((self.num_scene_joints, self.num_scene_joints))
         self.joint_ids_all = np.array([], dtype=np.int32)
         for dev in self.device_models:
             self.joint_ids_all = np.hstack([self.joint_ids_all, dev.joint_ids_all])
         self.joint_ids_all = np.sort(np.unique(self.joint_ids_all))
         self.num_joints_total = len(self.joint_ids_all)
-        self.running = False
+
         self.__state_locks: Dict[RobotState, Lock] = dict([(key, Lock()) for key in RobotState])
         self.__state_var_map: Dict[RobotState, function] = {
             RobotState.M : lambda : self.__get_M(),
             RobotState.DQ : lambda : self.__get_dq(),
-            RobotState.J : lambda : self.__get_jacobian()
+            RobotState.J : lambda : self.__get_jacobian(),
+            RobotState.G: lambda: self.__get_gravity()
         }
         self.__state: Dict[RobotState, Any] = dict()
         self.data_collect_hz = collect_hz
 
-    
+    def __get_gravity(self):
+        return self._data.qfrc_bias
+
     def __get_jacobian(self):
         """
             Return the Jacobians for all of the devices,
@@ -52,20 +60,19 @@ class BaseRobot():
             J_sub = device_model.get_state(DeviceState.J)
             J_idxs[name] = np.arange(start_idx, start_idx + J_sub.shape[0])
             start_idx += J_sub.shape[0]
-            if J_sub != []:
-                J_sub = J_sub[:, np.arange(len(device_model.joint_ids_all))]
+            J_sub = J_sub[:, self.joint_ids_all] if J_sub.shape[1] > self.num_joints_total else J_sub
             Js[name] = J_sub
         return Js, J_idxs
     
     def __get_dq(self):
-        #dq = self.sim.data.qvel[self.joint_ids_all]
+        #dq = self._data.qvel[self.joint_ids_all]
         dq = np.zeros(self.joint_ids_all.shape)
         for dev in self.device_models:
             dq[np.arange(len(dev.joint_ids_all))] = dev.get_state(DeviceState.DQ)
         return dq
 
     def __get_M(self):
-        mjp.mj_fullM(self.sim.model.ptr, self.M_vec, self.sim.data.ptr.qM)
+        mjp.mj_fullM(self._model, self.M_vec, self._data.qM)
         M = self.M_vec.reshape(self.num_scene_joints, self.num_scene_joints)
         M = M[np.ix_(self.joint_ids_all, self.joint_ids_all)]
         return M
@@ -89,7 +96,7 @@ class BaseRobot():
         self.__state_locks[state_var].release()
 
     def is_running(self):
-        return self.running
+        return self.__running
     
     def is_using_sim(self):
         return self.__use_sim
@@ -100,11 +107,11 @@ class BaseRobot():
             self.__set_state(var)
     
     def start(self):
-        assert self.running is False and self.__use_sim is False
-        self.running = True
+        assert self.__running is False and self.__use_sim is False
+        self.__running = True
         interval = float(1.0/float(self.data_collect_hz))
         prev_time = time.time()
-        while self.running:
+        while self.__running:
             for dev in self.device_models:
                 dev.update_state()
             self.__update_state()
@@ -115,8 +122,8 @@ class BaseRobot():
             prev_time = curr_time
     
     def stop(self):
-        assert self.running is True and self.__use_sim is False
-        self.running = False
+        assert self.__running is True and self.__use_sim is False
+        self.__running = False
 
     def get_device_model(self, device_model_name: str) -> DeviceModel:
         return self.device_models_dict[device_model_name]

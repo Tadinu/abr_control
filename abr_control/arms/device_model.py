@@ -1,6 +1,8 @@
+import os.path
+
 import numpy as np
 from threading import Lock
-from typing import Dict, Any
+from typing_extensions import Dict, Any, Optional
 from enum import Enum
 import copy
 from abr_control.arms.mujoco_model import MujocoModel
@@ -23,24 +25,24 @@ class DeviceModel(MujocoModel):
     that is passed to AbrMujoco. It collects data from the simulator, obtaining the 
     desired device states.
     """
-    def __init__(self, sim_interface, device_yml: Dict, xml_file=None, use_sim_state=True):
+    def __init__(self, sim_interface, device_yml: Optional[Dict] = None, xml_file=None, use_sim_state=True):
         super().__init__(sim_interface, xml_file=xml_file, use_sim_state=use_sim_state)
         self.use_sim_state = use_sim_state
         # Assign all of the yaml parameters
-        self.name = device_yml['name']
-        self.max_vel = device_yml['max_vel']
-        self.EE = device_yml['EE']
-        self.ctrlr_dof_xyz = device_yml['ctrlr_dof_xyz']
-        self.ctrlr_dof_abg = device_yml['ctrlr_dof_abg'] #alpha, beta, gamma
+        self.name = device_yml['name'] if device_yml else os.path.basename(xml_file)
+        self.max_vel = device_yml['max_vel'] if device_yml else None
+        self.EE = device_yml['EE'] if device_yml else None
+        self.ctrlr_dof_xyz = device_yml['ctrlr_dof_xyz'] if device_yml else None
+        self.ctrlr_dof_abg = device_yml['ctrlr_dof_abg'] if device_yml else None #alpha, beta, gamma
         self.ctrlr_dof = np.hstack([self.ctrlr_dof_xyz, self.ctrlr_dof_abg])
-        self.start_angles = np.array(device_yml['start_angles'])
-        self.num_gripper_joints = device_yml['num_gripper_joints']
+        self.start_angles = np.array(device_yml['start_angles']) if device_yml else None
+        self.num_gripper_joints = device_yml['num_gripper_joints'] if device_yml else None
         
         # Check if the user specifies a start body for the while loop to terminte at
-        self.start_body_id = self.sim_model.name2id(device_yml['start_body'], 'body') if self.sim_model else 0
+        self.start_body_id = self.sim_model.name2id(device_yml['start_body'], 'body') if device_yml and self.sim_model else 0
         
         if self.sim_model:
-            parent_body_id = lambda body_id : self.sim_model.body_parentid[body_id]
+            parent_body_id = lambda child_body_id : self.sim_model.body_parentid[child_body_id]
             # Reference: ABR Control
             # Get the joint ids, using the specified EE / start body 
             # start with the end-effector (EE) and work back to the world body

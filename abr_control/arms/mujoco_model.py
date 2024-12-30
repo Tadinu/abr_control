@@ -6,7 +6,6 @@ import dm_control.mujoco as dm_mujoco
 import numpy as np
 
 from abr_control.utils import download_meshes
-from abr_control.interfaces.interface import Interface
 
 # Ref: https://github.com/abr/abr_control/blob/main/abr_control/arms/mujoco_config.py
 class MujocoModel:

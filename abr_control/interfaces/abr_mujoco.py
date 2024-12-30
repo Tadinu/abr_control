@@ -1,5 +1,9 @@
 import os
 from re import A
+
+from sympy import false
+from typing_extensions import List
+
 import mujoco as mjp
 import dm_control.mujoco as dm_mujoco
 from dm_control import _render as dm_render
@@ -16,6 +20,8 @@ import abr_control
 from abr_control.utils import transformations
 
 from .interface import Interface
+from ..arms import DeviceModel
+from ..arms.mujoco_model import MujocoModel
 
 MAX_FRONTBUFFER_SIZE = 2048
 NULL_RENDERER = dm_view_renderer.NullRenderer()
@@ -44,10 +50,26 @@ class AbrMujoco(Interface):
         create_offscreen_rendercontext=False,
     ):
         super().__init__()
-        self.main_dir = os.path.dirname(abr_control.__file__)
-        self.visualize = visualize
-        self.create_offscreen_rendercontext = create_offscreen_rendercontext
-        self.time = 0 # accumulated time over steps
+        self.main_dir: str = os.path.dirname(abr_control.__file__)
+        self.visualize: bool = visualize
+        self.offscreen: bool = false
+        self.create_offscreen_rendercontext: bool = create_offscreen_rendercontext
+
+        self.scene_xml_path: str = ""
+        self.sim_model = None
+        self.model_ptr = None
+        self.data_ptr = None
+        self.viewer = None
+        self.viewer_ptr = None
+        self._viewport = None
+        self._pause_subject = None
+        self._time_multiplier = None
+        self._frame_timer = None
+        self.window = None
+
+        self.q = None
+        self.dq = None
+        self.dqq = None
 
         # 1- connect to Mujoco, creating [self.sim/sim_model/model_ptr/data_ptr], instansiating [self.viewer] here-in
         self.connect(os.path.join(self.main_dir, scene_xml), dt)
@@ -55,7 +77,7 @@ class AbrMujoco(Interface):
         # 2- init viewer
         self.init_viewer()
 
-    def init_device_models(self, device_models):
+    def init_device_models(self, device_models: List[DeviceModel]):
         """
         Parameters
         ----------
@@ -69,12 +91,12 @@ class AbrMujoco(Interface):
             # set the time step for simulation
             device_model.sim_model.opt.timestep = self.dt
 
-    def init_device_start_pose(self, device_model):
+    def init_device_start_pose(self, device_model: DeviceModel):
         # Start pose
         if device_model.name == "ur5right" or device_model.name == "ur5left" or device_model.name == "base":
             self.send_target_angles(device_model, device_model.start_angles)
 
-    def connect(self, scene_xml_path, dt, joint_names=None, camera_id=-1, **kwargs):
+    def connect(self, scene_xml_path: str, dt, joint_names=None, camera_id=-1, **kwargs):
         """
         joint_names: list, optional (Default: None)
             list of joint names to send control signal to and get feedback from
@@ -143,7 +165,6 @@ class AbrMujoco(Interface):
 
         if self.viewer._renderer:
             self.time += self.dt
-            self.timestep = int(self.time / self.dt)
 
             #freq_display = not self.timestep % self.display_frequency
             if self.visualize and update_display:
@@ -187,16 +208,16 @@ class AbrMujoco(Interface):
 
         return joint_ids, joint_names
 
-    def get_xyz_by_id(self, id, object_type="body"):
+    def get_xyz_by_id(self, obj_id, object_type="body"):
         if object_type == "mocap":  # commonly queried to find target
-            mocap_id = self.model_ptr.body_mocapid[id]
+            mocap_id = self.model_ptr.body_mocapid[obj_id]
             xyz = self.data_ptr.mocap_pos[mocap_id]
         elif object_type == "body":
-            xyz = self.data_ptr.xpos[id]
+            xyz = self.data_ptr.xpos[obj_id]
         elif object_type == "geom":
-            xyz = self.data_ptr.geom_xpos[id]
+            xyz = self.data_ptr.geom_xpos[obj_id]
         elif object_type == "site":
-            xyz = self.data_ptr.site_xpos[id]
+            xyz = self.data_ptr.site_xpos[obj_id]
         else:
             raise Exception(f"get_xyz for {object_type} object type not supported")
         return np.copy(xyz)
@@ -210,8 +231,8 @@ class AbrMujoco(Interface):
             type of object you want the xyz position of
             Can be: mocap, body, geom, site
         """
-        id = self.sim_model.name2id(name, object_type)
-        return self.get_xyz_by_id(id, object_type)
+        obj_id = self.sim_model.name2id(name, object_type)
+        return self.get_xyz_by_id(obj_id, object_type)
 
     def get_mocap_xyz_by_id(self, body_id):
         mocap_id = self.model_ptr.body_mocapid[body_id]
@@ -242,18 +263,18 @@ class AbrMujoco(Interface):
         """
         self.set_mocap_xyz_by_id(self.sim_model.name2id(name, 'body'), xyz)
 
-    def get_orientation_by_id(self, id, as_quat=True, object_type="body"):
+    def get_orientation_by_id(self, obj_id, as_quat=True, object_type="body"):
         quat = None
         xmat = None
         if object_type == "mocap":  # commonly queried to find target
-            quat = self.get_mocap_orientation_by_id(id)
+            quat = self.get_mocap_orientation_by_id(obj_id)
         elif object_type == "body":
-            quat = self.data_ptr.xquat[id] # Shape (4,)
+            quat = self.data_ptr.xquat[obj_id] # Shape (4,)
         elif object_type == "geom":
-            xmat = self.data_ptr.geom_xmat[id] # Shape (9,)
+            xmat = self.data_ptr.geom_xmat[obj_id] # Shape (9,)
             quat = transformations.quaternion_from_matrix(xmat.reshape((3, 3)))
         elif object_type == "site":
-            xmat = self.data_ptr.site_xmat[id] # Shape (9,)
+            xmat = self.data_ptr.site_xmat[obj_id] # Shape (9,)
             quat = transformations.quaternion_from_matrix(xmat.reshape((3, 3)))
         else:
             raise Exception(
@@ -261,30 +282,33 @@ class AbrMujoco(Interface):
             )
         return np.copy(quat) if as_quat else xmat.reshape((3, 3))
 
-    def get_orientation(self, name, as_quat=True, object_type="body"):
+    def get_orientation(self, name, as_quat: bool=True, object_type="body"):
         """Returns the orientation of an object as the [w x y z] quaternion [radians]
 
         Parameters
         ----------
         name: string
             the name of the object of interest
+        as_quat: bool (Default: True)
+            return orientation quaternion [radians]
         object_type: string, Optional (Default: body)
             The type of mujoco object to get the orientation of.
             Can be: mocap, body, geom, site
         """
-        id = self.sim_model.name2id(name, object_type)
-        return self.get_orientation_by_id(id, as_quat, object_type)
+        obj_id = self.sim_model.name2id(name, object_type)
+        return self.get_orientation_by_id(obj_id, as_quat, object_type)
 
-    def get_rotation_matrix_by_id(self, id, object_type="body"):
+    def get_rotation_matrix_by_id(self, obj_id, object_type="body"):
+        xmat = None
         if object_type == "mocap":  # commonly queried to find target
-            quat = self.get_mocap_orientation_by_id(id)
+            quat = self.get_mocap_orientation_by_id(obj_id)
             mjp.mju_quat2Mat(xmat, quat)
         elif object_type == "body":
-            xmat = self.data_ptr.xmat[id]
+            xmat = self.data_ptr.xmat[obj_id]
         elif object_type == "geom":
-            xmat = self.data_ptr.geom_xmat[id]
+            xmat = self.data_ptr.geom_xmat[obj_id]
         elif object_type == "site":
-            xmat = self.data_ptr.site_xmat[id]
+            xmat = self.data_ptr.site_xmat[obj_id]
         else:
             raise Exception(
                 f"get_rotation_matrix_by_id for {object_type} object type not supported"
@@ -302,10 +326,10 @@ class AbrMujoco(Interface):
             The type of mujoco object to get the orientation of.
             Can be: mocap, body, geom, site
         """
-        id = self.sim_model.name2id(name, object_type)
-        return self.get_rotation_matrix_by_id(id, object_type)
+        obj_id = self.sim_model.name2id(name, object_type)
+        return self.get_rotation_matrix_by_id(obj_id, object_type)
         
-    def get_xvelp(self, device, name, object_type="body"):
+    def get_xvelp(self, device: MujocoModel, name, object_type="body"):
         return device.xvelp(name, object_type)
     
     def get_sensor_data(self):
@@ -339,7 +363,7 @@ class AbrMujoco(Interface):
         """
         self.set_mocap_orientation_by_id(self.sim_model.name2id(name, 'body'), quat)
     
-    def send_forces(self, device_model, u, use_joint_dyn_addrs=True):
+    def send_forces(self, device_model: DeviceModel, u, use_joint_dyn_addrs=True):
         """Apply the specified torque to the robot joints
 
         Apply the specified torque to the robot joints, move the simulation
@@ -347,6 +371,8 @@ class AbrMujoco(Interface):
 
         Parameters
         ----------
+        device_model: DeviceModel
+            MuJoCo device model
         u: np.array
             the torques to apply to the robot [Nm]
         update_display: boolean, Optional (Default:True)
@@ -388,22 +414,26 @@ class AbrMujoco(Interface):
         """
         self.data_ptr.xfrc_applied[self.sim.model.name2id(name, 'body')] = u_ext
 
-    def send_target_angles(self, device_model, q):
+    def send_target_angles(self, device_model: DeviceModel, q):
         """Move the robot to the specified configuration.
 
         Parameters
         ----------
+        device_model: DeviceModel
+            MuJoCo device model
         q: np.array
             configuration to move to [radians]
         """
         self.data_ptr.qpos[device_model.joint_pos_addrs] = np.copy(q)
         self.sim.forward()
 
-    def set_joint_state(self, device_model, q, dq):
+    def set_joint_state(self, device_model: DeviceModel, q, dq):
         """Move the robot to the specified configuration.
 
         Parameters
         ----------
+        device_model: DeviceModel
+            MuJoCo device model
         q: np.array
             configuration to move to [rad]
         dq: np.array
@@ -414,7 +444,7 @@ class AbrMujoco(Interface):
         self.data_ptr.qvel[device_model.joint_vel_addrs] = np.copy(dq)
         self.sim.forward()
 
-    def get_feedback(self, device_model):
+    def get_feedback(self, device_model: DeviceModel):
         """Return a dictionary of information needed by the controller.
 
         Returns the joint angles and joint velocities in [rad] and [rad/sec],

@@ -29,6 +29,7 @@ class InverseKinematics:
         self,
         position,
         target_position,
+        target_quat,
         n_timesteps=200,
         dt=0.001,
         plot=False,
@@ -73,12 +74,7 @@ class InverseKinematics:
 
         Qd = np.array(
             transformations.unit_vector(
-                transformations.quaternion_from_euler(
-                    target_position[3],
-                    target_position[4],
-                    target_position[5],
-                    axes="sxyz",
-                )
+                target_quat
             )
         )
 

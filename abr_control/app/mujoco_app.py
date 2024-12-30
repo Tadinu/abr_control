@@ -1,4 +1,4 @@
-from typing import Dict
+from typing_extensions import Dict, Optional
 import time
 import os
 import yaml
@@ -14,7 +14,8 @@ from abr_control.arms import BaseRobot
 from .main_window import MainWindow
 
 class MujocoApp(AbrMujoco):
-    def __init__(self, app_config_file : str = None, scene_xml : str = None, use_sim_state : bool = True,
+    def __init__(self, app_config_file: Optional[str] = None,
+                 scene_xml: Optional[str] = None, use_sim_state: bool = True,
                  dt=0.001, visualize=True,
                  create_offscreen_rendercontext=False):
         # Connect to Mujoco here-in
@@ -23,13 +24,20 @@ class MujocoApp(AbrMujoco):
 
         # Create [self.config[]]
         self.main_dir = os.path.dirname(abr_control.__file__)
-        self.app_config_path = os.path.join(self.main_dir, app_config_file)
-        with open(self.app_config_path, 'r') as file:
-            self.config = yaml.safe_load(file)
+        self.app_config_path = os.path.join(self.main_dir, app_config_file) if app_config_file else None
+        self.config = None
+        if self.app_config_path:
+            # NOTE: Not all app has config setup in file
+            with open(self.app_config_path, 'r') as file:
+                self.config = yaml.safe_load(file)
 
         # 1- [self.config[]] -> [self.device_models]
-        dev_configs = self.config['devices']
-        self.init_device_models([DeviceModel(self, device_yml=dev_cfg, xml_file=self.scene_xml_path if len(dev_configs) == 1 else None, use_sim_state=use_sim_state) for dev_cfg in dev_configs])
+        dev_configs = self.config['devices'] if self.config else None
+        self.init_device_models([DeviceModel(sim_interface=self, device_yml=dev_cfg,
+                                             xml_file=self.scene_xml_path if (len(dev_configs) >= 1) else None,
+                                             use_sim_state=use_sim_state) for dev_cfg in dev_configs] if dev_configs
+                                else
+                                [DeviceModel(sim_interface=self, xml_file=self.scene_xml_path, use_sim_state=use_sim_state)])
         self.devices = np.array(self.device_models)
 
         # 2- [Device joints] from ee_names ('ur_stand_dummy' is inactive)

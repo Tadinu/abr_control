@@ -1,3 +1,4 @@
+# Ref: https://github.com/ir-lab/bimanual-imitation/blob/main/irl_environments/expert_bimanual_quad_insert.py
 import threading
 from typing import Dict
 from enum import Enum
@@ -25,7 +26,8 @@ class Action(Enum):
     to be converted into valid actions
     """
     WP = 0,
-    GRIP = 1
+    GRIP = 1,
+    INTERP = 2
 
 
 """
@@ -49,11 +51,12 @@ class InsertionTask(MujocoApp):
 
         # Specify the controller configuations that should be used for
         # the corresponding devices
-        osc_device_configs = [
-            ('base', self.get_controller_config('osc0')),
-            ('ur5right', self.get_controller_config('osc2')),
-            ('ur5left', self.get_controller_config('osc2'))
-        ]
+        osc_device_configs = {
+            'base': self.get_controller_config('osc0'),
+            'ur5right': self.get_controller_config('osc2'),
+            'ur5left': self.get_controller_config('osc2')
+        }
+        self.device_model_names = osc_device_configs.keys()
 
         # Get the configuration for the nullspace controller
         nullspace_config = self.get_controller_config('nullspace')
@@ -97,15 +100,15 @@ class InsertionTask(MujocoApp):
                 'kp' : 6,
                 'max_error' : 0.0018,
                 'gripper_force' : 0.0,
+                "noise": [0.0, 0.0],
                 'min_speed_xyz' : 0.1,
                 'max_speed_xyz' : 3.0
             }
         # Grip action defaults
         elif action == Action.GRIP:
-            param_dict = {
-                'gripper_force' : -0.08,
-                'gripper_duation' : 1.0
-            }
+            param_dict = {'gripper_force' : -0.08, 'gripper_duation' : 1.0}
+        elif action == Action.INTERP:
+            param_dict = {'method': 'linear', 'steps': 2}
         return param_dict
 
     def get_action_map(self):
@@ -205,7 +208,34 @@ class InsertionTask(MujocoApp):
         while self.timer_running:
             ctrlr_output = self.controller.generate_forces(self.targets)
             self.send_forces(ctrlr_output, gripper_force=params['gripper_force'], update_errors=self.active_arm.name)
-    
+
+    def is_done(self, max_error, step):
+        """
+        Determines whether an action is done based on (currently)
+        the velocities of the devices. Alternative options include
+        the L2 error (commented out)
+        """
+        # Based on steps
+        if step < 25:
+            return False
+
+        # Based on DQ Error
+        vel = []
+        for dev_model_name in self.device_model_names:
+            if dev_model_name != "base":
+                vel += list(self.robot.get_device_model(dev_model_name).get_state(DeviceState.EE_XYZ_VEL))
+                vel += np.linalg.norm(
+                    self.controller.calc_error(
+                        self.targets[dev_model_name], self.robot.get_device_model(dev_model_name)
+                    )
+                )
+
+        vel = np.asarray(vel)
+        if np.all(np.isclose(np.zeros_like(vel), vel, rtol=max_error, atol=max_error)):
+            return True
+
+        return False
+
     def set_waypoint_targets(self, params):
         """
         Set the targets for the robot devices (arms) based on the values 

@@ -1,13 +1,30 @@
+# Ref: https://github.com/ir-lab/bimanual-imitation/blob/main/irl_control/osc.py
 import numpy as np
-import mujoco as mjp
 from transforms3d.derivations.quaternions import qmult
-from transforms3d.quaternions import qconjugate
-from transforms3d.euler import quat2euler, euler2quat
-from transforms3d.utils import normalized_vector
-from typing import Dict, Tuple
+from transforms3d.euler import quat2euler
+from transforms3d.quaternions import qinverse
+
+from typing_extensions import Any, Dict, Tuple
 from ..arms.base_robot import BaseRobot, RobotState
 from ..arms.device_model import DeviceModel, DeviceState
 from .utils import ControllerConfig, Target
+
+DUAL_UR5_MASK = [True] * 7 + [False] * 6 + [True] * 6 + [False] * 6
+ADMITTANCE_GAIN = 0.01
+
+
+class ControllerConfig:
+    def __init__(self, ctrlr_dict):
+        self.ctrlr_dict = ctrlr_dict
+
+    def __getitem__(self, __name: str) -> Any:
+        return self.ctrlr_dict[__name]
+
+    def get_params(self, keys):
+        return [self.ctrlr_dict[key] for key in keys]
+
+    def __setitem__(self, __name: str, __value: Any) -> None:
+        self.ctrlr_dict[__name] = __value
 
 class OSC2():
     """
@@ -15,7 +32,11 @@ class OSC2():
         This controller accepts targets as a input, and generates a control signal
         for the devices that are linked to the targets.
     """
-    def __init__(self, robot: BaseRobot, sim, input_device_configs: Tuple[str, Dict], nullspace_config : Dict = None, use_g=True, admittance=False):
+    def __init__(self, robot: BaseRobot, sim,
+                 input_device_configs: Dict[str, Dict],
+                 nullspace_config: Dict = None,
+                 use_g=True, admittance=False,
+                 default_start_pt=None):
         self.sim = sim
         self.robot = robot
         
@@ -23,11 +44,12 @@ class OSC2():
         # ControllerConfig. ControllerConfig is a lightweight wrapper
         # around the dict class to add some desired methods
         self.device_configs = dict()
-        for dcnf in input_device_configs:
-            self.device_configs[dcnf[0]] = ControllerConfig(dcnf[1])
+        for dev_model_name, dev_config in input_device_configs.items():
+            self.device_configs[dev_model_name] = ControllerConfig(dev_config)
         self.nullspace_config = nullspace_config
         self.use_g = use_g
         self.admittance = admittance
+        self.default_start_pt = default_start_pt
         
         # Obtain the controller configuration parameters
         # and calculate the task space gains
@@ -74,7 +96,9 @@ class OSC2():
             u_task: array of length 6 corresponding to the task space control
         """
         if device_model.max_vel is not None:
-            kv, kp, ko, lamb = self.device_configs[device_model.name].get_params(['kv', 'kp', 'ko', 'lamb'])
+            kv, kp, ko, lamb = self.device_configs[device_model.name].get_params(
+                ['kv', 'kp', 'ko', 'lamb']
+            )
             scale = np.ones(6)
             
             # Apply the sat gains to the x,y,z components
@@ -110,10 +134,10 @@ class OSC2():
         
         # Calculate a,b,g error
         if np.sum(device_model.ctrlr_dof_abg) > 0:
-            t_rot = target.get_quat()
-            q_d = normalized_vector(t_rot)
-            q_r = np.array(qmult(q_d, qconjugate(device_model.get_state(DeviceState.EE_QUAT))))
-            u_task[3:] = quat2euler(qconjugate(q_r)) # -q_r[1:] * np.sign(q_r[0])
+            q_r = np.array(
+                qmult(device_model.get_state(DeviceState.EE_QUAT), qinverse(target.get_quat()))
+            )
+            u_task[3:] = quat2euler(q_r)
         return u_task
     
     def generate_forces(self, targets: Dict[str, Target]):
@@ -128,83 +152,118 @@ class OSC2():
         if self.robot.is_using_sim() is False:
             assert self.robot.is_running(), "BaseRobot must be running!"
         
+        # auto_targets gets rid of the base target for automatic base control
+        auto_targets: Dict[str, Target] = dict()
+        for device_name in ["ur5right", "ur5left"]:
+            if device_name in targets.keys():
+                auto_targets[device_name] = targets[device_name]
+            else:
+                if self.default_start_pt is not None:
+                    auto_targets[device_name] = Target()
+                    pos = self.default_start_pt[device_name][:3]
+                    quat = self.default_start_pt[device_name][3:7]
+                    auto_targets[device_name].set_xyz(pos)
+                    auto_targets[device_name].set_quat(quat)
+                else:
+                    print(f"Error: Must Provide a Target Value for {device_name}!")
+                    raise ValueError
+
+        targets = auto_targets
+
+        if self.robot.is_using_sim() is False:
+            assert self.robot.is_running(), "Robot must be running!"
+
         robot_state = self.robot.get_all_states()
+
         # Get the Jacobian for the all of devices passed in
         Js, J_idxs = robot_state[RobotState.J]
-        # J, J_idxs = self.robot.get_jacobian(targets.keys())
         J = np.array([])
         for device_name in targets.keys():
-            print(Js[device_name], Js[device_name].shape)
-            J = np.hstack([J, Js[device_name]]) if J.size else Js[device_name]
-        # Get the inertia matrix for the robot
+            J = np.vstack([J, Js[device_name]]) if J.size else Js[device_name]
+
+        mask = DUAL_UR5_MASK
+        J = J[:, mask]
         M = robot_state[RobotState.M]
-        
-        # Compute the inverse matrices used for task space operations 
-        print(J.shape, M.shape)
+
+        M = M[mask]
+        M = M[:, mask]
+
+        # Compute the inverse matrices used for task space operations
         Mx, M_inv = self.__Mx(J, M)
 
         # Initialize the control vectors and sim data needed for control calculations
-        # dq = self.robot.get_dq()
         dq = robot_state[RobotState.DQ]
-        
+        dq = dq[mask]
         dx = np.dot(J, dq)
         uv_all = np.dot(M, dq)
-        u_all = np.zeros(self.robot.num_joints_total)
+        u_all = np.zeros(len(self.robot.joint_ids_all[mask]))
         u_task_all = np.array([])
         ext_f = np.array([])
 
         for device_name, target in targets.items():
             device_model = self.robot.get_device_model(device_name)
-            # Calculate the error from the EE to target
+
+            # Calculate the error from the device EE to target
             u_task = self.calc_error(target, device_model)
-            stiffness = np.array(self.device_configs[device_name]['k'] + [1]*3)
-            damping = np.array(self.device_configs[device_name]['d'] + [1]*3)
+            stiffness = np.array(self.device_configs[device_name]["k"] + [1] * 3)
+            damping = np.array(self.device_configs[device_name]["d"] + [1] * 3)
+
             # Apply gains to the error terms
             if device_model.max_vel is not None:
                 u_task = self.__limit_vel(u_task, device_model)
-                u_task *= stiffness 
+                u_task *= stiffness
             else:
-                task_space_gains = self.device_configs[device_model.name]['task_space_gains']
+                task_space_gains = self.device_configs[device_model.name]["task_space_gains"]
                 u_task *= task_space_gains * stiffness
 
             # Apply kv gain
-            kv = self.device_configs[device_model.name]['kv']
+            kv = self.device_configs[device_model.name]["kv"]
             target_vel = np.hstack([target.get_xyz_vel(), target.get_abg_vel()])
-            if np.all(target_vel) == 0:
-                u_all[np.arange(len(device_model.joint_ids_all))] = -1 * kv * uv_all[np.arange(len(device_model.joint_ids_all)) ]
+            if np.all(target_vel == 0):
+                ist, c1, c2 = np.intersect1d(
+                    device_model.joint_ids_all, self.robot.joint_ids_all[mask], return_indices=True
+                )
+                u_all[c2] = -1 * kv * uv_all[c2]
             else:
                 diff = dx[J_idxs[device_name]] - np.array(target_vel)[device_model.ctrlr_dof]
                 u_task[device_model.ctrlr_dof] += kv * diff * damping[device_model.ctrlr_dof]
-            
-            force = np.append(robot_state[device_name][DeviceState.FORCE], robot_state[device_name][DeviceState.TORQUE])
+
+            force = np.append(
+                robot_state[device_name][DeviceState.FORCE],
+                robot_state[device_name][DeviceState.TORQUE],
+            )
             ext_f = np.append(ext_f, force[device_model.ctrlr_dof])
             u_task_all = np.append(u_task_all, u_task[device_model.ctrlr_dof])
-        
+
         # Transform task space signal to joint space
-        if self.admittance is True:
-            u_all -= np.dot(J.T, np.dot(Mx, u_task_all+ext_f))
+        if self.admittance:
+            u_all -= np.dot(J.T, np.dot(Mx, u_task_all + ADMITTANCE_GAIN * ext_f))
         else:
             u_all -= np.dot(J.T, np.dot(Mx, u_task_all))
-        
+
         # Apply gravity forces
         if self.use_g:
-            u_all += self.sim.data.qfrc_bias[self.robot.joint_ids_all]
-        
+            qfrc_bias = robot_state[RobotState.G]
+            u_all += qfrc_bias[self.robot.joint_ids_all[mask]]
+
         # Apply the nullspace controller using the specified parameters
         # (if passed to constructor / initialized)
         if self.nullspace_config is not None:
-            damp_kv = self.nullspace_config['kv']
-            u_null = np.dot(M, -damp_kv*dq)
+            damp_kv = self.nullspace_config["kv"]
+            u_null = np.dot(M, -damp_kv * dq)
             Jbar = np.dot(M_inv, np.dot(J.T, Mx))
-            null_filter = np.eye(self.robot.num_joints_total) - np.dot(J.T, Jbar.T)
+            null_filter = np.eye(len(self.robot.joint_ids_all[mask])) - np.dot(J.T, Jbar.T)
             u_all += np.dot(null_filter, u_null)
 
         # Return the forces and indices to apply the forces
         forces = []
-        force_idxs = []       
-        for dev_name in targets.keys():
-            dev = self.robot.device_models_dict[dev_name]
-            forces.append(u_all[dev.actuator_trnids])
-            force_idxs.append(dev.ctrl_idxs)
-        
-        return force_idxs, forces 
+        force_idxs = []
+        for dev in self.robot.device_models:
+            ist, c1, c2 = np.intersect1d(
+                dev.actuator_trnids, self.robot.joint_ids_all[mask], return_indices=True
+            )
+            forces.append(u_all[c2])
+            ist2, c12, c22 = np.intersect1d(dev.actuator_trnids, ist, return_indices=True)
+            force_idxs.append(dev.ctrl_idxs[c22])
+
+        return force_idxs, forces
